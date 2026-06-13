@@ -765,5 +765,28 @@
             {},
             {"text": "Food conversion to Production\nDuring the construction of a Settler, the city will not grow. Instead, the 1st, 2nd, 4th, and from there on every 4th, excess Food (Growth) is converted into Production, with the rest of the excess Food being lost."}
         ]
+    },
+    {
+        "name": "Authoritative Multiplayer",
+        "category": "Multiplayer",
+        "civilopediaText": [
+            {"text": "Authoritative Multiplayer (v2)", "header": 3, "color": "#4af"},
+            {"text": "An experimental multiplayer mode (a preview, not yet the default). Classic multiplayer still works exactly as before."},
+            {"separator": true},
+            {"text": "One source of truth", "header": 4, "color": "#fa0"},
+            {"text": "Instead of every player uploading and downloading the whole game, a single authority holds the one true game state. Your client sends only your actions (move this unit, found a city, choose research...) and receives back the result. No more huge per-turn transfers."},
+            {},
+            {"text": "No maphacks", "header": 4, "color": "#fa0"},
+            {"text": "You only ever receive the part of the world you are allowed to see. Fogged enemy units, undiscovered cities and unseen barbarian camps are never sent to your device, so a modified client cannot reveal them. Hidden information is enforced on the wire, not just in the interface."},
+            {},
+            {"text": "Two ways to host", "header": 4, "color": "#fa0"},
+            {"text": "A dedicated server can hold the game (always-on, fully trusted), or any player can host from their own client. When a player hosts, the others reach them through a public relay that only solves connectivity - it forwards messages and never sees your game."},
+            {},
+            {"text": "Simultaneous turns", "header": 4, "color": "#fa0"},
+            {"text": "Because the authority orders and resolves everyone's actions, players can act at the same time instead of waiting in line. Your own actions appear instantly and are reconciled against the authority's result."},
+            {},
+            {"text": "Status: preview", "header": 4, "color": "#f55"},
+            {"text": "The networking, turn resolution, prediction and reconnection are in place, but the set of in-game actions wired as commands is still growing - so not every action is playable online yet. Expect rough edges, and prefer classic multiplayer for serious games for now."}
+        ]
     }
 ]
