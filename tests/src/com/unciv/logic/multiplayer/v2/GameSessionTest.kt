@@ -1,8 +1,11 @@
 package com.unciv.logic.multiplayer.v2
 
+import com.badlogic.gdx.Gdx
+import com.unciv.UncivGame
 import com.unciv.logic.GameInfo
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.PlayerType
+import com.unciv.logic.files.UncivFiles
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
 import com.unciv.logic.multiplayer.v2.client.ClientGameView
@@ -49,6 +52,12 @@ class GameSessionTest {
 
     @Before
     fun setUp() {
+        // addCity() (used by one test) founds a city, which makes the two civs meet; meeting
+        // completes a tutorial task that calls settings.save(), needing UncivGame.files. TestGame
+        // doesn't initialise it under the headless runner, so wire it up exactly as
+        // GameSerializationTests/MediaFinderTests do. Pure test-harness plumbing, not netcode.
+        UncivGame.Current.files = UncivFiles(Gdx.files)
+
         // Large enough that the far edge is well outside any unit's sight radius.
         testGame.makeHexagonalMap(6)
         // Use REAL major-civ nations (not TestGame's synthesised ad-hoc "Nation-0"): the round-trip
@@ -168,5 +177,33 @@ class GameSessionTest {
         val farInAView = aView.tileMap[far.position.x, far.position.y]
         assertNull("Fogged enemy unit must be gone from the tile in A's decoded view",
             farInAView.militaryUnit)
+    }
+
+    @Test
+    fun seenEnemyCitySurvivesRoundTripWithInteriorStripped() {
+        // A's unit sits at the center; B founds a city on an adjacent tile, so A sees (hence explores)
+        // the city's centre. The city must therefore survive into A's filtered view — but its interior
+        // (buildings/production/citizens) must be stripped, AND the whole snapshot must still survive
+        // the client decode (gameInfoFromString -> setTransients) *with a city present*. This is the
+        // load-bearing path the units-only round-trip test does not exercise.
+        testGame.addUnit("Warrior", civA, centerTile)
+        val bCityTile = centerTile.neighbors.first()
+        testGame.addCity(civB, bCityTile)
+
+        testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
+        assertTrue("Precondition: A must see B's city centre", bCityTile.isVisible(civA))
+        assertTrue("Precondition: B's city should have buildings (e.g. Palace) canonically",
+            civB.cities.first().cityConstructions.builtBuildings.isNotEmpty())
+
+        session.onFrame(playerCommand(seq = 9, playerId = playerA, command = GameCommand.EndTurn))
+
+        val (_, aFrame) = emitted.filter { it.second is GameFrame.PlayerView }.single { it.first == playerA }
+        // Round-trip WITH a (redacted) city present — must not throw on client setTransients.
+        val aView = ClientGameView().onPlayerView(aFrame as GameFrame.PlayerView)
+
+        val bInAView = aView.getCivilization(civB.civID)
+        assertEquals("A has explored B's city, so it must remain in A's view", 1, bInAView.cities.size)
+        assertTrue("A must not learn B's city interior — buildings must be stripped in A's view",
+            bInAView.cities.first().cityConstructions.builtBuildings.isEmpty())
     }
 }
