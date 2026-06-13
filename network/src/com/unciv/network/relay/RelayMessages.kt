@@ -80,11 +80,6 @@ sealed interface RelayToClient {
     @SerialName("peerLeft")
     data class PeerLeft(val userId: UserId) : RelayToClient
 
-    /** The host role moved to another peer (host migration). */
-    @Serializable
-    @SerialName("hostChanged")
-    data class HostChanged(val newHostId: UserId) : RelayToClient
-
     /** An opaque [GameFrame] forwarded from [fromId] (relay never inspects [payload]). */
     @Serializable
     @SerialName("relayed")

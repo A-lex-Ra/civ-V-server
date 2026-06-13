@@ -126,8 +126,8 @@ ClientToRelay: Hello(protocolVersion, userId, auth) | CreateRoom(gameId) | JoinR
              | RelayTo(targetUserId, payload)  // DIRECTED to one peer (opaque) — needed so the
                                                //   authority can send each player a *different*
                                                //   visibility-filtered delta
-RelayToClient: Welcome(roomId, role, peers) | PeerJoined/PeerLeft | HostChanged(newHostId)
-             | Relayed(fromId, payload) | Error(code, msg)
+RelayToClient: Welcome(roomId, role, peers) | PeerJoined/PeerLeft
+             | Relayed(fromId, payload) | Error(code, msg)   // HostChanged deferred to Phase 7
 
 // Game frames, carried opaquely inside Relay/RelayTo/Relayed (or sent directly in dedicated mode)
 GameFrame:

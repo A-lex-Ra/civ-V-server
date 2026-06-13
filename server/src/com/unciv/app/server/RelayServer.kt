@@ -29,7 +29,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Wire format: sealed [ClientToRelay] in, sealed [RelayToClient] out, serialized with the shared
  * [com.unciv.network.serialization.relayJson] configuration (installed on the WebSockets plugin).
  *
- * Phase 1: rooms, routing and host election/migration. Authority/turn logic comes later.
+ * Phase 1: rooms, routing and host-role assignment. Host migration is deferred (see
+ * docs/multiplayer-v2.md §7); authority/turn logic comes later.
  */
 class RelayServer {
 
@@ -159,28 +160,16 @@ class RelayServer {
 
     private suspend fun leave(room: Room, session: DefaultWebSocketServerSession) {
         val leavingUserId: UserId?
-        val wasHost: Boolean
-        val newHostUserId: UserId?
-        val roomEmpty: Boolean
         synchronized(lock) {
             leavingUserId = room.peers.remove(session)?.userId
-            wasHost = room.hostSession === session
-            if (wasHost) {
-                val next = room.peers.values.firstOrNull()
-                room.hostSession = next?.session
-                newHostUserId = next?.userId
-            } else {
-                newHostUserId = null
-            }
-            roomEmpty = room.peers.isEmpty()
-            if (roomEmpty) rooms.remove(room.roomId)
+            // Host migration is deferred (see docs/multiplayer-v2.md §7): a departing host just
+            // clears the host slot; re-election/HostChanged is not implemented yet.
+            if (room.hostSession === session) room.hostSession = null
+            if (room.peers.isEmpty()) rooms.remove(room.roomId)
         }
 
         if (leavingUserId == null) return
         broadcast(room, except = session, RelayToClient.PeerLeft(leavingUserId))
-        if (wasHost && newHostUserId != null) {
-            broadcast(room, except = null, RelayToClient.HostChanged(newHostUserId))
-        }
     }
 
     /** Snapshot the current member sessions under the lock, then send outside it. */
