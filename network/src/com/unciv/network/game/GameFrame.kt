@@ -82,10 +82,20 @@ sealed interface GameFrame {
         val checksum: Checksum
     ) : GameFrame
 
-    /** Client -> host: requests a fresh [StateCheckpoint] because it detected a desync. */
+    /**
+     * Client -> host: the requester wants a fresh full snapshot — used by a (re)connecting/desynced
+     * client to re-sync from the authority (docs/multiplayer-v2.md §5, §10 Phase 6). The authority
+     * answers with a directed [PlayerView] reflecting the *current* canonical state for [playerId],
+     * projected mid-turn on demand (not only at turn boundaries).
+     *
+     * [playerId] names which player's filtered view to send back, so the authority knows who to
+     * re-sync. **Security:** until the host loop binds requester identity to the connection, the
+     * authority trusts this field as it does [PlayerCommand.playerId]; see the handler KDoc in
+     * `GameSession.onResyncRequest`.
+     */
     @Serializable
     @SerialName("resyncRequest")
-    data object ResyncRequest : GameFrame
+    data class ResyncRequest(val playerId: PlayerId) : GameFrame
 
     /** Host -> client: acknowledges a resync; a [StateCheckpoint] follows. */
     @Serializable

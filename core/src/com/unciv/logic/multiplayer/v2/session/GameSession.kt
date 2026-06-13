@@ -65,7 +65,8 @@ class GameSession(
         when (frame) {
             is GameFrame.PlayerCommand -> onPlayerCommand(frame)
             is GameFrame.TurnSubmission -> onTurnSubmission(frame)
-            else -> Unit // Ack/ResyncRequest: later phases.
+            is GameFrame.ResyncRequest -> onResyncRequest(frame)
+            else -> Unit // Ack and the provisional lockstep frames: not used by v2.
         }
     }
 
@@ -115,6 +116,35 @@ class GameSession(
         simultaneousResolver.accept(frame)
         if (simultaneousResolver.isReadyToResolve(expectedHumanPlayers()))
             resolveTurn()
+    }
+
+    /**
+     * Phase 6 — reconnection / desync recovery (docs/multiplayer-v2.md §10). A (re)connecting or
+     * desynced client sends a [GameFrame.ResyncRequest]; the authority answers with a **fresh**
+     * directed [GameFrame.PlayerView] projected from the *current* canonical state — mid-turn, on
+     * demand, not only at turn boundaries. Because the authority ships full per-player filtered
+     * snapshots (not incremental semantic deltas yet), reconnection is simply "send a fresh full
+     * PlayerView"; no missed-delta replay / [GameFrame.Ack] cursor is needed (see report).
+     *
+     * An unknown or non-human requester is rejected like the other handlers ([GameFrame.CommandRejected]),
+     * and **no** [GameFrame.PlayerView] is emitted.
+     *
+     * **SECURITY (cross-cutting TODO — not solved here).** The authority currently trusts
+     * [GameFrame.ResyncRequest.playerId] verbatim, exactly as it trusts [GameFrame.PlayerCommand.playerId].
+     * A hostile client could therefore request *another* player's filtered view and read state it may
+     * not see — a leak that violates hidden-information goal #3 (docs/multiplayer-v2.md §8). When the
+     * transport->session host loop is wired, the requester's identity MUST be bound to the connection
+     * (the relay's `Relayed.fromId`), not taken from the frame, before this snapshot is sent. The
+     * wiring that would enforce this does not exist yet (tests drive [onFrame] directly).
+     */
+    private fun onResyncRequest(frame: GameFrame.ResyncRequest) {
+        val civId = roster[frame.playerId]
+        if (civId == null || !isHuman(civId)) {
+            outbound(frame.playerId, GameFrame.CommandRejected(0, "Unknown or non-human player '${frame.playerId}'"))
+            return
+        }
+        // A directed, current-state snapshot — the executor/turn paths are untouched.
+        sendSnapshotTo(frame.playerId, civId)
     }
 
     /**
@@ -171,19 +201,33 @@ class GameSession(
     /** Project, encode and send each human player in the roster their own filtered snapshot. */
     private fun broadcastPlayerViews() {
         for ((playerId, civId) in roster) {
-            val civ = gameInfo.getCivilizationOrNull(civId) ?: continue
-            if (civ.playerType != PlayerType.Human) continue
-            val projected = PlayerViewProjector.projectFor(gameInfo, civId)
-            val bytes = GameInfoCodec.encode(projected)
-            outbound(
-                playerId,
-                GameFrame.PlayerView(
-                    turn = gameInfo.turns,
-                    compatVersion = CURRENT_COMPAT_VERSION,
-                    gzippedFilteredGameInfo = bytes
-                )
-            )
+            if (!isHuman(civId)) continue
+            sendSnapshotTo(playerId, civId)
         }
+    }
+
+    /**
+     * Project the current canonical state down to [civId]'s visibility-filtered view, encode it and
+     * send it as a directed [GameFrame.PlayerView] to [playerId]. The single projection+encode path
+     * shared by the turn-boundary broadcast ([broadcastPlayerViews]) and the on-demand resync
+     * ([onResyncRequest]) — so a reconnecting client gets exactly the snapshot it would have received
+     * at the next turn boundary, just computed now against the live state.
+     *
+     * No-op if the civ is gone (e.g. eliminated since the roster was built). Caller is responsible
+     * for the human/roster checks it cares about; [onResyncRequest] also rejects non-human ids.
+     */
+    private fun sendSnapshotTo(playerId: PlayerId, civId: String) {
+        gameInfo.getCivilizationOrNull(civId) ?: return
+        val projected = PlayerViewProjector.projectFor(gameInfo, civId)
+        val bytes = GameInfoCodec.encode(projected)
+        outbound(
+            playerId,
+            GameFrame.PlayerView(
+                turn = gameInfo.turns,
+                compatVersion = CURRENT_COMPAT_VERSION,
+                gzippedFilteredGameInfo = bytes
+            )
+        )
     }
 
     /**
