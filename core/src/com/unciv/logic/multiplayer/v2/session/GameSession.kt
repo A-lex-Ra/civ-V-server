@@ -27,7 +27,13 @@ import com.unciv.network.game.GameFrame
  *
  * Phase 3 (sequential): a player's client streams [GameFrame.PlayerCommand]s; the authority
  * validates+applies each and, on `EndTurn`, runs [GameInfo.nextTurn] and pushes a fresh per-player
- * filtered snapshot. Simultaneous turns land in Phase 5.
+ * filtered snapshot.
+ *
+ * Phase 5 (simultaneous): clients instead send a whole-turn [GameFrame.TurnSubmission]; the
+ * authority buffers one per player and, once every rostered human player is `done` (or a future
+ * timer calls [forceResolveTurn]), resolves the turn by applying all buffered commands in a single
+ * deterministic order through the same executor choke-point, rejecting conflicting losers, then runs
+ * `nextTurn` and pushes the same per-player snapshots. The sequential path is unchanged.
  */
 class GameSession(
     /** The canonical, authoritative game state owned by this session. */
@@ -47,15 +53,19 @@ class GameSession(
 ) {
     private val commandExecutor = CommandExecutor()
 
+    /** Phase 5: per-player buffering + deterministic ordering for the in-flight simultaneous turn. */
+    private val simultaneousResolver = SimultaneousTurnResolver()
+
     /**
      * Handle an inbound [GameFrame] from a client. Phase 3 handles [GameFrame.PlayerCommand]
-     * (single-command sequential play); other inbound frame kinds are ignored for now (they belong
-     * to later phases — simultaneous turns, acks, resync).
+     * (single-command sequential play); Phase 5 adds [GameFrame.TurnSubmission] (simultaneous turns).
+     * Other inbound frame kinds are ignored for now (they belong to later phases — acks, resync).
      */
     fun onFrame(frame: GameFrame) {
         when (frame) {
             is GameFrame.PlayerCommand -> onPlayerCommand(frame)
-            else -> Unit // TurnSubmission/Ack/ResyncRequest: later phases.
+            is GameFrame.TurnSubmission -> onTurnSubmission(frame)
+            else -> Unit // Ack/ResyncRequest: later phases.
         }
     }
 
@@ -84,6 +94,69 @@ class GameSession(
             outbound(frame.playerId, GameFrame.CommandRejected(frame.seq, e.message ?: "Command rejected"))
         }
     }
+
+    /**
+     * Phase 5 — simultaneous turns. Buffer a player's whole-turn [GameFrame.TurnSubmission] for the
+     * current turn. An unknown/non-human player id is rejected. Once every rostered **human** player
+     * has submitted with `done = true`, the turn resolves automatically (see [resolveTurn]); a future
+     * per-turn timer can instead call [forceResolveTurn] to resolve with whatever has arrived.
+     *
+     * The submission *is* the player's whole turn — there is no separate `EndTurn` frame in the
+     * simultaneous model (any `EndTurn` command inside the batch is dropped at resolution time).
+     */
+    private fun onTurnSubmission(frame: GameFrame.TurnSubmission) {
+        val civId = roster[frame.playerId]
+        if (civId == null || !isHuman(civId)) {
+            // A submission carries no per-command seq; echo seq 0 so the issuer can correlate the
+            // whole batch being declined. (Design note — see report: TurnSubmission has no seq field.)
+            outbound(frame.playerId, GameFrame.CommandRejected(0, "Unknown or non-human player '${frame.playerId}'"))
+            return
+        }
+        simultaneousResolver.accept(frame)
+        if (simultaneousResolver.isReadyToResolve(expectedHumanPlayers()))
+            resolveTurn()
+    }
+
+    /**
+     * Force-resolve the current simultaneous turn with whatever submissions have arrived so far —
+     * the hook a future per-turn timer calls when not every player marked `done`. A player who did
+     * not submit simply contributes no commands this turn. No-op if nothing is buffered.
+     */
+    fun forceResolveTurn() {
+        if (simultaneousResolver.hasBufferedSubmissions())
+            resolveTurn()
+    }
+
+    /**
+     * Resolve one simultaneous turn: apply every buffered command in the single canonical order
+     * `(submissionArrivalIndex, playerId, seq)` through the [CommandExecutor] choke-point, emitting a
+     * directed [GameFrame.CommandRejected] for any the executor declines (e.g. a movement conflict
+     * because the destination tile is now occupied by an already-applied move) and skipping it.
+     * Then run inter-turn processing **once** and push each human player a fresh filtered snapshot.
+     *
+     * First-cut conflict model: deterministic ordered application + executor-driven rejection of the
+     * losers. Deeper conflict rules (simultaneous combat, contested city-capture) are deferred (§11).
+     */
+    private fun resolveTurn() {
+        for (ordered in simultaneousResolver.orderedCommands()) {
+            val civId = roster[ordered.playerId] ?: continue
+            try {
+                commandExecutor.execute(gameInfo, civId, ordered.command)
+            } catch (e: CommandException) {
+                outbound(ordered.playerId, GameFrame.CommandRejected(ordered.seq, e.message ?: "Command rejected"))
+            }
+        }
+        simultaneousResolver.reset()
+        gameInfo.nextTurn()
+        broadcastPlayerViews()
+    }
+
+    /** The rostered players whose civ is human — the set whose `done` submissions gate resolution. */
+    private fun expectedHumanPlayers(): Set<PlayerId> =
+        roster.filterValues { isHuman(it) }.keys
+
+    private fun isHuman(civId: String): Boolean =
+        gameInfo.getCivilizationOrNull(civId)?.playerType == PlayerType.Human
 
     /**
      * Run inter-turn processing on the authority and push each human player their own
