@@ -1,8 +1,13 @@
 package com.unciv.logic.multiplayer.v2
 
 import com.unciv.logic.GameInfo
+import com.unciv.logic.city.City
 import com.unciv.logic.civilization.Civilization
+import com.unciv.logic.civilization.Notification
+import com.unciv.logic.civilization.NotificationAction
+import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.map.mapunit.MapUnit
+import com.unciv.logic.map.tile.RoadStatus
 import com.unciv.logic.map.tile.Tile
 import com.unciv.logic.multiplayer.v2.visibility.PlayerViewProjector
 import com.unciv.testing.GdxTestRunner
@@ -19,8 +24,13 @@ import org.junit.runner.RunWith
 /**
  * Phase 3a deliverable check (see docs/multiplayer-v2.md §2 goal #3, §10 Phase 3): the
  * [PlayerViewProjector] produces a redacted deep copy of the canonical [GameInfo] that is safe to
- * send to a given player — enemy units the viewer cannot see are absent, the viewer's own units
- * survive, and the canonical game is left untouched.
+ * send to a given player —
+ *  - enemy units the viewer cannot see are absent, the viewer's own units survive;
+ *  - other civs' interior secrets (gold, stockpiles, tech, policies, espionage, notifications,
+ *    diplomacy internals) are scrubbed while the viewer's own civ is left intact;
+ *  - a seen enemy city stays present but its building/construction/citizen/stockpile detail is gone;
+ *  - an unexplored tile's resource/improvement/road/feature is hidden;
+ *  - and the canonical game is left untouched, the projection being a distinct deep copy.
  */
 @RunWith(GdxTestRunner::class)
 class PlayerViewProjectorTest {
@@ -47,6 +57,10 @@ class PlayerViewProjectorTest {
     /** All units in [gameInfo] owned by [civId], located by scanning every tile. */
     private fun unitsOf(gameInfo: GameInfo, civId: String): List<MapUnit> =
         gameInfo.tileMap.values.flatMap { it.getUnits().toList() }.filter { it.owner == civId }
+
+    /** The projected copy of [civ] (by id) in [view]. */
+    private fun projectedCiv(view: GameInfo, civId: String): Civilization =
+        view.getCivilizationOrNull(civId)!!
 
     @Test
     fun enemyUnitOnFoggedTileIsRemovedFromView() {
@@ -113,6 +127,9 @@ class PlayerViewProjectorTest {
         testGame.addUnit("Warrior", civA, centerTile)
         val bUnit: MapUnit = testGame.addUnit("Warrior", civB, far)
 
+        // Give B some interior secrets so we can also prove the canonical civ is untouched.
+        civB.addGold(500)
+        civB.tech.techsResearched.add("Pottery")
         val canonicalBUnitsBefore = unitsOf(testGame.gameInfo, civB.civID).size
         assertEquals("Precondition: B has exactly one unit canonically", 1, canonicalBUnitsBefore)
 
@@ -129,6 +146,12 @@ class PlayerViewProjectorTest {
             far, bUnit.currentTile
         )
         assertEquals("Canonical far tile must still hold B's unit", bUnit, far.militaryUnit)
+        // Canonical secrets must NOT be scrubbed by the projection.
+        assertEquals("Projection must not touch canonical B's gold", 500, civB.gold)
+        assertTrue(
+            "Projection must not touch canonical B's researched techs",
+            civB.tech.techsResearched.contains("Pottery")
+        )
     }
 
     @Test
@@ -142,5 +165,166 @@ class PlayerViewProjectorTest {
             "Projection must deep-copy the tileMap (not share it)",
             viewForA.tileMap !== testGame.gameInfo.tileMap
         )
+        assertTrue(
+            "Projection must deep-copy each civ (not share the canonical instance)",
+            projectedCiv(viewForA, civB.civID) !== civB
+        )
     }
+
+    // region Priority 1 — other civs' interior secrets
+
+    @Test
+    fun otherCivInteriorSecretsAreScrubbedFromView() {
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        // Seed B with a spread of interior secrets a maphacking A must not be able to read.
+        civB.addGold(1234)
+        civB.resourceStockpiles.add("Iron", 7)
+        civB.tech.techsResearched.add("Pottery")
+        civB.tech.techsInProgress["Writing"] = 30
+        civB.tech.freeTechs = 2
+        civB.policies.storedCulture = 99
+        civB.policies.freePolicies = 1
+        civB.policies.getAdoptedPolicies().add("Tradition")
+        civB.notifications.add(
+            Notification("secret plans", emptyArray(), emptyList<NotificationAction>(), NotificationCategory.General)
+        )
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val bInView = projectedCiv(viewForA, civB.civID)
+
+        assertEquals("B's gold must be scrubbed", 0, bInView.gold)
+        assertTrue("B's stockpiled resources must be scrubbed", bInView.resourceStockpiles.isEmpty())
+        assertTrue("B's researched techs must be scrubbed", bInView.tech.techsResearched.isEmpty())
+        assertTrue("B's tech-in-progress must be scrubbed", bInView.tech.techsInProgress.isEmpty())
+        assertEquals("B's free techs must be scrubbed", 0, bInView.tech.freeTechs)
+        assertEquals("B's stored culture must be scrubbed", 0, bInView.policies.storedCulture)
+        assertEquals("B's free policies must be scrubbed", 0, bInView.policies.freePolicies)
+        assertTrue("B's adopted policies must be scrubbed", bInView.policies.getAdoptedPolicies().isEmpty())
+        assertTrue("B's notifications must be scrubbed", bInView.notifications.isEmpty())
+    }
+
+    @Test
+    fun viewersOwnSecretsAreKeptInView() {
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        // A is the viewer: A's own interior must be fully preserved.
+        civA.addGold(777)
+        civA.tech.techsResearched.add("Pottery")
+        civA.policies.getAdoptedPolicies().add("Tradition")
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val aInView = projectedCiv(viewForA, civA.civID)
+
+        assertEquals("Viewer A's own gold must be preserved", 777, aInView.gold)
+        assertTrue(
+            "Viewer A's own researched techs must be preserved",
+            aInView.tech.techsResearched.contains("Pottery")
+        )
+        assertTrue(
+            "Viewer A's own adopted policies must be preserved",
+            aInView.policies.getAdoptedPolicies().contains("Tradition")
+        )
+    }
+
+    // endregion
+
+    // region Priority 2 — seen enemy city interior
+
+    @Test
+    fun seenEnemyCityStaysButInteriorIsStripped() {
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        // B founds a city near the center; A explores its center tile so the city itself stays.
+        val cityTile = centerTile.neighbors.first()
+        val cityB: City = testGame.addCity(civB, cityTile)
+        cityTile.setExplored(civA, true)
+
+        // Give the city interior detail that A must not be able to read.
+        cityB.cityConstructions.constructionQueue.clear()
+        cityB.cityConstructions.constructionQueue.add("Monument")
+        cityB.cityConstructions.inProgressConstructions["Monument"] = 5
+        cityB.population.foodStored = 42
+        cityB.workedTiles.add(cityTile.position)
+        cityB.resourceStockpiles.add("Iron", 3)
+        // A city always has at least its Palace among builtBuildings after founding.
+        assertTrue(
+            "Precondition: founded city should have at least one built building",
+            cityB.cityConstructions.builtBuildings.isNotEmpty()
+        )
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val bInView = projectedCiv(viewForA, civB.civID)
+
+        assertEquals("Seen enemy city must remain present in A's view", 1, bInView.cities.size)
+        val cityInView = bInView.cities.first()
+        // Existence / identity kept.
+        assertEquals("City position must be kept", cityB.location, cityInView.location)
+        assertEquals("City name must be kept", cityB.name, cityInView.name)
+        // Interior stripped.
+        assertTrue(
+            "Built-buildings list must be stripped",
+            cityInView.cityConstructions.builtBuildings.isEmpty()
+        )
+        assertTrue(
+            "Construction queue must be stripped",
+            cityInView.cityConstructions.constructionQueue.isEmpty()
+        )
+        assertTrue(
+            "In-progress constructions must be stripped",
+            cityInView.cityConstructions.inProgressConstructions.isEmpty()
+        )
+        assertEquals("Food stockpile must be stripped", 0, cityInView.population.foodStored)
+        assertTrue("Worked tiles must be stripped", cityInView.workedTiles.isEmpty())
+        assertTrue("City resource stockpiles must be stripped", cityInView.resourceStockpiles.isEmpty())
+    }
+
+    // endregion
+
+    // region Priority 3 — unexplored tile contents
+
+    @Test
+    fun unexploredTileContentsAreHidden() {
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        // A far, never-explored tile carrying contents A must not be able to read.
+        val far = farTile()
+        far.setTileResource("Iron", updateCache = false)
+        far.resourceAmount = 4
+        far.improvement = "Farm"
+        far.roadStatus = RoadStatus.Road
+
+        testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
+        assertFalse("Far tile must be unexplored by A", far.isExplored(civA))
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val farInView = viewForA.tileMap[far.position.x, far.position.y]
+
+        assertNull("Resource on an unexplored tile must be hidden", farInView.resource)
+        assertEquals("Resource amount on an unexplored tile must be hidden", 0, farInView.resourceAmount)
+        assertNull("Improvement on an unexplored tile must be hidden", farInView.improvement)
+        assertEquals("Road on an unexplored tile must be hidden", RoadStatus.None, farInView.roadStatus)
+        // The tile itself must still exist so the cloned map stays structurally valid.
+        assertNotNull("The unexplored tile itself must still be present in the view", farInView)
+    }
+
+    @Test
+    fun visibleTileContentsAreKept() {
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        // Contents on the center tile, which A can currently see, must NOT be redacted.
+        centerTile.setTileResource("Iron", updateCache = false)
+        centerTile.improvement = "Farm"
+
+        testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
+        assertTrue("Center tile must be visible to A", centerTile.isVisible(civA))
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val centerInView = viewForA.tileMap[centerTile.position.x, centerTile.position.y]
+
+        assertEquals("Visible tile's resource must be kept", "Iron", centerInView.resource)
+        assertEquals("Visible tile's improvement must be kept", "Farm", centerInView.improvement)
+    }
+
+    // endregion
 }

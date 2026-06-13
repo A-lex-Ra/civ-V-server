@@ -4,7 +4,7 @@ import com.unciv.logic.GameInfo
 import com.unciv.logic.city.City
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.map.HexCoord
-import com.unciv.logic.map.mapunit.MapUnit
+import com.unciv.logic.map.tile.RoadStatus
 import com.unciv.logic.map.tile.Tile
 
 /**
@@ -13,7 +13,19 @@ import com.unciv.logic.map.tile.Tile
  *
  * Given the canonical [GameInfo] and the civ id of a viewing player, [projectFor] returns a
  * **redacted deep copy** that is safe to put on the wire to that player: state the player may not
- * legally see (fogged enemy units, undiscovered enemy cities, unseen barbarians) is removed.
+ * legally see is removed. This covers, in priority order:
+ *
+ *  - fogged enemy units, undiscovered enemy cities, unseen barbarian camps ([redactUnits],
+ *    [redactCities], [redactBarbarianEncampments]);
+ *  - **other civs' interior secrets** — gold, stockpiles, tech, policies, diplomacy internals with
+ *    third parties, espionage, notifications/popups/trade requests, and production knowledge
+ *    ([redactOtherCivSecrets]);
+ *  - **seen-but-foreign city interiors** — building lists, construction queue, citizen assignment,
+ *    food/production stockpiles, while keeping the city's existence/name/position/owner
+ *    ([redactSeenEnemyCityInteriors]);
+ *  - **unexplored tile contents** — resource/improvement/road/feature/wonder hidden on tiles the
+ *    viewer has never seen, and the "remembered" ([Civilization.lastSeenImprovement]) improvement
+ *    substituted on explored-but-currently-fogged tiles ([redactTileContents]).
  *
  * ### How it works (cheapest correct approach)
  *
@@ -30,22 +42,25 @@ import com.unciv.logic.map.tile.Tile
  *
  * We deliberately do **not** call `setTransients()` on the clone: that would re-resolve the ruleset
  * from `RulesetCache` and recompute every transient, which is both expensive and unnecessary here
- * (we already have the canonical visibility). Redaction works purely on the cloned serialized state.
+ * (we already have the canonical visibility). We rebuild ONLY the tileMap's transients (with the
+ * canonical ruleset) so position-keyed lookups and per-tile terrain transients are available for
+ * redaction. All redaction operates on the cloned **serialized** state — exactly the fields a
+ * client deserializes off the wire (the [PlayerView] frame carries a gzipped serialized GameInfo).
+ *
+ * ### Contract: the clone must still deserialize + run full setTransients() on the client
+ *
+ * Every removal/clear below leaves the cloned [GameInfo] structurally valid: we never remove a civ
+ * (so every `DiplomacyManager.otherCivName` still resolves), we detach a removed city from the
+ * tiles that referenced it, and we only ever *empty* serialized collections / zero serialized
+ * scalars (never null out a `lateinit`/structural field such as `Tile.baseTerrain` or
+ * `DiplomacyManager.otherCivName`). An empty tech/policy/buildings set is itself a valid state
+ * (it is the game-start state), so the client's `setTransients()` rebuilds clean transients from it.
  *
  * ### Conservative stance
  *
- * When unsure whether the viewer may see something about *another* civ, we hide it. This first cut
- * covers the map/unit/city/barbarian visibility the maintainer named. Finer per-civ secrets (exact
- * gold, tech progress, diplomacy internals, fog-tile contents reconstruction) are deliberately
- * **not** scrubbed yet — see the TODOs below. Those are additive and do not change the core property
- * this stage proves: a client never *receives* an enemy unit/city it cannot see.
- *
- * TODO(phase-3+): blank the *contents* (improvement / resource / road / city footprint) of tiles the
- *   viewer has never explored, reconstructing the "remembered" state from `lastSeenImprovement`
- *   instead of leaking the live tile. Left intact here to avoid corrupting the cloned map's
- *   structural invariants in this first cut; only units/cities/camps are removed.
- * TODO(phase-3+): redact other civs' interior secrets (gold, tech, policies, diplomacy, espionage,
- *   notifications, trade requests) so a hostile client cannot read another player's economy.
+ * When unsure whether the viewer may see something about *another* civ, we hide it. We intentionally
+ * leave a few things alone where redacting them would risk the deserialization/setTransients
+ * contract or where the data is legitimately observable — see the TODOs at the relevant call sites.
  */
 object PlayerViewProjector {
 
@@ -56,6 +71,7 @@ object PlayerViewProjector {
     ) {
         fun canSee(tile: Tile) = tile.position in visiblePositions
         fun hasExplored(tile: Tile) = tile.position in exploredPositions
+        fun hasExploredPosition(position: HexCoord) = position in exploredPositions
     }
 
     /**
@@ -69,6 +85,9 @@ object PlayerViewProjector {
         val canonicalViewer = gameInfo.getCivilizationOrNull(viewingCivId)
             ?: throw IllegalArgumentException("Viewing civ '$viewingCivId' is not part of this game")
         val visibility = snapshotVisibility(gameInfo, canonicalViewer)
+        // The remembered-improvement map is read off the CANONICAL viewer (its transients are live)
+        // and applied to the clone by position, so we don't depend on the clone's transient state.
+        val rememberedImprovements = HashMap(canonicalViewer.lastSeenImprovement)
 
         // 2. Deep-clone via the engine. Tile positions are preserved, so the snapshot keys both.
         val projected = gameInfo.clone()
@@ -82,10 +101,15 @@ object PlayerViewProjector {
         projected.tileMap.gameInfo = projected
         projected.tileMap.setTransients(gameInfo.ruleset, setUnitCivTransients = false)
 
-        // 3. Redact the clone by position.
+        // 3. Redact the clone by position / by civ. Order: units & cities (which may remove cities)
+        //    first, then strip the interiors of the cities that survived, then per-civ secrets, then
+        //    tile contents.
         redactUnits(projected, viewingCivId, visibility)
         redactCities(projected, viewingCivId, visibility)
+        redactSeenEnemyCityInteriors(projected, viewingCivId, visibility)
         redactBarbarianEncampments(projected, visibility)
+        redactOtherCivSecrets(projected, viewingCivId)
+        redactTileContents(projected, visibility, rememberedImprovements)
 
         return projected
     }
@@ -132,14 +156,192 @@ object PlayerViewProjector {
             if (civ.cities.isEmpty()) continue
 
             val hiddenCities = civ.cities.filter { city ->
-                val centerTile = city.getCenterTileOrNull() ?: return@filter false
-                !visibility.hasExplored(centerTile)
+                // Key off the serialized center position (city.location), NOT the transient
+                // getCenterTileOrNull(): we deliberately skip City.setTransients() on the clone, so
+                // the cloned city's centerTile is uninitialized and getCenterTileOrNull() is always
+                // null here. location is always present and equals the center tile's position.
+                !visibility.hasExploredPosition(city.location)
             }
             if (hiddenCities.isEmpty()) continue
 
             for (city in hiddenCities) detachCityFromTiles(city, projected)
             civ.cities = civ.cities.filter { it !in hiddenCities }
         }
+    }
+
+    /**
+     * For cities of OTHER civs that survived [redactCities] (i.e. the viewer has explored their
+     * center, so the city's existence/name/position/owner legitimately stays visible), strip the
+     * interior detail the viewer cannot legally know:
+     *  - the built-buildings list and the current construction / production queue;
+     *  - citizen assignment (worked & locked tiles) and specialist allocation;
+     *  - food and production stockpiles.
+     *
+     * Everything cleared here is a serialized collection emptied or a serialized scalar zeroed, so
+     * the clone still deserializes and `City.setTransients()` (which rebuilds `builtBuildingObjects`
+     * from the now-empty `builtBuildings`) runs without throwing.
+     */
+    private fun redactSeenEnemyCityInteriors(
+        projected: GameInfo,
+        viewerId: String,
+        visibility: VisibilitySnapshot
+    ) {
+        for (civ in projected.civilizations) {
+            if (civ.civID == viewerId) continue
+            for (city in civ.cities) {
+                // Defensive: only strip cities that are actually visible-by-exploration. After
+                // redactCities every remaining other-civ city qualifies, but guard anyway so this is
+                // safe regardless of call order. Key off the serialized center position
+                // (city.location) since the clone's transient centerTile is uninitialized here.
+                if (!visibility.hasExploredPosition(city.location)) continue
+                stripCityInterior(city)
+            }
+        }
+    }
+
+    private fun stripCityInterior(city: City) {
+        // Construction / production knowledge.
+        val constructions = city.cityConstructions
+        constructions.builtBuildings.clear()
+        constructions.inProgressConstructions.clear()
+        constructions.constructionQueue.clear()
+        constructions.productionOverflow = 0
+        constructions.currentConstructionIsUserSet = false
+        constructions.freeBuildingsProvidedFromThisCity.clear()
+
+        // Citizen assignment & specialists.
+        city.workedTiles.clear()
+        city.lockedTiles.clear()
+        city.population.getNewSpecialists().clear()
+        city.population.foodStored = 0
+
+        // City-level stockpiled resources.
+        city.resourceStockpiles.clear()
+    }
+
+    /**
+     * Scrub a single non-viewer civ's top-level interior secrets — the things a hostile client must
+     * not be able to read about another player's economy / plans. The viewer's own civ is excluded
+     * by the caller's id check; we never touch it.
+     */
+    private fun redactOtherCivSecrets(projected: GameInfo, viewerId: String) {
+        for (civ in projected.civilizations) {
+            if (civ.civID == viewerId) continue
+            scrubCivSecrets(civ)
+        }
+    }
+
+    private fun scrubCivSecrets(civ: Civilization) {
+        // --- Treasury & stockpiled resources ---
+        if (civ.gold != 0) civ.addGold(-civ.gold) // gold has a private setter; addGold is the public path
+        civ.resourceStockpiles.clear()
+
+        // --- Tech (known/researched techs + research progress) ---
+        // Clearing the researched-tech set is a valid state (game start); the client's
+        // tech.setTransients() rebuilds researchedTechnologies / era from the empty set.
+        civ.tech.techsResearched.clear()
+        civ.tech.techsInProgress.clear()
+        civ.tech.techsToResearch.clear()
+        civ.tech.freeTechs = 0
+        civ.tech.repeatingTechsResearched = 0
+        civ.tech.scienceFromResearchAgreements = 0
+
+        // --- Adopted policies & stored culture ---
+        civ.policies.getAdoptedPolicies().clear()
+        civ.policies.freePolicies = 0
+        civ.policies.storedCulture = 0
+        civ.policies.shouldOpenPolicyPicker = false
+
+        // --- Production / purchasing knowledge held at the civ level ---
+        civ.civConstructions.boughtItemsWithIncreasingPrice.clear()
+        civ.civConstructions.builtItemsWithIncreasingCost.clear()
+
+        // --- Espionage ---
+        civ.espionageManager.spyList.clear()
+        civ.espionageManager.erasSpyEarnedFor.clear()
+
+        // --- Notifications / popups / trade requests (purely this civ's private UI/turn state) ---
+        civ.notifications.clear()
+        civ.notificationsLog.clear()
+        civ.notificationCountAtStartTurn = null
+        civ.popupAlerts.clear()
+        civ.tradeRequests.clear()
+
+        // --- Diplomacy internals with third parties ---
+        // Keep the diplomacy *map* intact (so otherCivName still resolves and met/at-war status is
+        // preserved — the viewer legitimately knows who has met whom enough for setTransients), but
+        // clear the AI-internal relationship payload the viewer must not read.
+        for (diplomacyManager in civ.diplomacy.values) {
+            diplomacyManager.trades.clear()
+            diplomacyManager.diplomaticModifiers.clear()
+            diplomacyManager.flagsCountdown.clear()
+            diplomacyManager.influence = 0f
+            diplomacyManager.totalOfScienceDuringRA = 0
+        }
+
+        // TODO(phase-3+): the smoothed-opinion fields (DiplomacyManager.smoothedOpinionOfOtherCiv /
+        //   cachedSmoothedOpinionOfOtherCiv) are AI relationship internals but have private setters,
+        //   so they cannot be scrubbed from this sibling object without a dedicated redaction API on
+        //   DiplomacyManager. They leak only a coarse AI opinion scalar between third parties; left
+        //   for a follow-up rather than widening DiplomacyManager's API from here.
+        // TODO(phase-3+): religion/victory/quest/great-person/golden-age managers are NOT scrubbed.
+        //   Some of their state is legitimately public (founded religion, score-relevant data) and
+        //   blindly clearing them risks the setTransients contract (e.g. religionManager wiring).
+        //   Decide per-field what is secret vs. observable in a dedicated pass.
+    }
+
+    /**
+     * Hide the *contents* of tiles the viewer may not see:
+     *  - **Never explored**: strip resource / improvement / road / terrain features / natural wonder
+     *    so a hostile client can't read them. We deliberately keep [Tile.baseTerrain] (it is a
+     *    `lateinit` structural field the client's setTransients requires) — see the TODO below.
+     *  - **Explored but currently fogged**: replace the live improvement with the viewer's
+     *    *remembered* one ([Civilization.lastSeenImprovement]); other live contents (resource, road,
+     *    features) are kept as last-seen, matching how the engine remembers an explored tile.
+     *
+     * Tiles the viewer can currently see are left fully intact.
+     */
+    private fun redactTileContents(
+        projected: GameInfo,
+        visibility: VisibilitySnapshot,
+        rememberedImprovements: Map<HexCoord, String>
+    ) {
+        for (tile in projected.tileMap.values) {
+            if (visibility.canSee(tile)) continue // currently visible -> the viewer sees it for real
+
+            if (!visibility.hasExplored(tile)) {
+                hideUnexploredTileContents(tile)
+            } else {
+                // Explored but fogged: show the remembered improvement instead of the live one.
+                tile.improvement = rememberedImprovements[tile.position]
+                tile.improvementIsPillaged = false
+                tile.improvementQueue.clear()
+            }
+        }
+    }
+
+    private fun hideUnexploredTileContents(tile: Tile) {
+        // Resource (clears both the serialized `resource` string and the transient cache).
+        tile.tileResource = null
+        tile.resourceAmount = 0
+
+        // Improvement + any in-progress improvement.
+        tile.improvement = null
+        tile.improvementIsPillaged = false
+        tile.improvementQueue.clear()
+
+        // Roads.
+        tile.roadStatus = RoadStatus.None
+        tile.roadIsPillaged = false
+
+        // Terrain features & natural wonder. baseTerrain stays (structural / lateinit).
+        tile.naturalWonder = null
+        tile.setTerrainFeatures(emptyList())
+
+        // TODO(phase-3+): Tile.baseTerrain itself still leaks the land/water shape of never-explored
+        //   tiles. It cannot simply be nulled (it is a non-null lateinit the client's setTransients
+        //   requires) — fully hiding it would mean substituting a neutral placeholder terrain and is
+        //   left for a follow-up to avoid corrupting the cloned map's structural invariants here.
     }
 
     /**
