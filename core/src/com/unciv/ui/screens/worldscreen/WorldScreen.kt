@@ -208,6 +208,26 @@ class WorldScreen(
             }
         }
 
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2): a v2 CLIENT renders the host's per-player filtered
+        // view. When the host pushes a fresh PlayerView (e.g. after the turn advances), the manager
+        // has already decoded it into a new filtered GameInfo; swap that in through the same
+        // screen-reload path nextTurn uses (UncivGame.loadGame), so the client sees its live view
+        // update as the host plays. The v2 HOST runs the canonical game locally and needs no hook.
+        run {
+            val v2 = UncivGame.Current.v2GameManager
+            if (v2 != null && !v2.isHost) {
+                isPlayersTurn = false // a fresh client waits for its first PlayerView before acting
+                v2.onView = onView@{
+                    // Fires on the transport receive thread; clientView already holds the decoded GameInfo.
+                    val newGameInfo = v2.currentClientView() ?: return@onView
+                    if (game.gameInfo === gameInfo) // ignore if we've since navigated away from this game
+                        Concurrency.run("V2 client view refresh") {
+                            UncivGame.Current.loadGame(newGameInfo)
+                        }
+                }
+            }
+        }
+
         if (restoreState != null) restore(restoreState)
 
         // don't run update() directly, because the UncivGame.worldScreen should be set so that the city buttons and tile groups
@@ -479,6 +499,10 @@ class WorldScreen(
 
         displayTutorial(TutorialTrigger.Introduction)
 
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2): explain the authoritative mode the first time a
+        // v2 game is opened. Maps to the "Authoritative Multiplayer" Civilopedia/Tutorials entry.
+        displayTutorial(TutorialTrigger.AuthoritativeMultiplayer) { gameInfo.gameParameters.isMultiplayerV2 }
+
         displayTutorial(TutorialTrigger.EnemyCityNeedsConqueringWithMeleeUnit) {
             viewingCiv.diplomacy.values.asSequence()
                     .filter { it.diplomaticStatus == DiplomaticStatus.War }
@@ -576,6 +600,19 @@ class WorldScreen(
     }
 
     fun nextTurn() {
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2): a v2 CLIENT (not the host/authority) does not run
+        // inter-turn processing locally and does not upload — it sends an EndTurn *intent* to the
+        // authority, which advances the turn and pushes back fresh per-player filtered PlayerViews
+        // (those swap in a new GameInfo and re-render, see the v2 onView hook wired in init). The v2
+        // HOST is the authority, so it falls through to the normal local nextTurn path below.
+        val v2 = UncivGame.Current.v2GameManager
+        if (v2 != null && !v2.isHost) {
+            isPlayersTurn = false
+            shouldUpdate = true
+            v2.sendEndTurn()
+            return
+        }
+
         isPlayersTurn = false
         shouldUpdate = true
         val progressBar = NextTurnProgress(nextTurnButton)

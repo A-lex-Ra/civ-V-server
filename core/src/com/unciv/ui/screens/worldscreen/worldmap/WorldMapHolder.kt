@@ -314,6 +314,33 @@ class WorldMapHolder(
             }
 
 
+            // EXPERIMENTAL / PREVIEW (multiplayer-v2): if we are a v2 CLIENT (not the host/authority),
+            // the local player does not mutate the canonical state directly — it sends a MoveUnit
+            // *intent* to the authority, which validates+applies it and pushes back a fresh filtered
+            // PlayerView (that PlayerView swaps in a new GameInfo and re-renders, see WorldScreen).
+            // The v2 HOST is the authority, so it falls through and mutates locally as normal.
+            // The command resolves the unit by acting-civ + source tile (CommandExecutor.executeMoveUnit),
+            // and applies a single-turn move, so we send the same per-turn destination computed above.
+            val v2 = UncivGame.Current.v2GameManager
+            if (v2 != null && !v2.isHost) {
+                val fromTile = selectedUnit.currentTile
+                if (fromTile != tileToMoveTo) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.MoveUnit(
+                        unitId = 0, // ignored by the executor; the unit is keyed by acting civ + source tile
+                        fromX = fromTile.position.x, fromY = fromTile.position.y,
+                        toX = tileToMoveTo.position.x, toY = tileToMoveTo.position.y
+                    ))
+                }
+                launchOnGLThread { removeUnitActionOverlay() }
+                // TODO (multiplayer-v2): only MoveUnit + EndTurn are routed for the v2 client so far.
+                //   The catalogue commands (FoundCity, AttackUnit, SetCityProduction, ChooseTech,
+                //   PromoteUnit, GenericUnitAction) AND the matching V2GameClient send-helpers all
+                //   exist already (network/.../GameCommand.kt + V2GameManager.sendCommand); each just
+                //   needs the same per-action interception at its UI mutation point (UnitActions,
+                //   CityScreen production, TechPickerScreen, PromotionPickerScreen, BattleTable).
+                return@run
+            }
+
             worldScreen.recordUndoCheckpoint()
 
             launchOnGLThread {

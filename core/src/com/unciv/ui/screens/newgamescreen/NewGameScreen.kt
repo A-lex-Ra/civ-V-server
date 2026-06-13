@@ -354,6 +354,39 @@ class NewGameScreen(
             return@coroutineScope
         }
 
+        if (gameSetupInfo.gameParameters.isMultiplayerV2) {
+            // EXPERIMENTAL / PREVIEW (multiplayer-v2): host the canonical game through the
+            // authoritative relay netcode instead of the v1 createGame/upload path. The host keeps
+            // its full GameInfo; clients join the returned room and receive filtered views.
+            try {
+                val serverUrl = UncivGame.Current.settings.multiplayer.getServer()
+                val hostUserId = UncivGame.Current.settings.multiplayer.getUserId()
+                val manager = com.unciv.logic.multiplayer.v2.V2GameManager()
+                val roomId = manager.hostGame(
+                    gameInfo = newGame,
+                    serverUrl = serverUrl,
+                    hostUserId = hostUserId,
+                    roster = com.unciv.logic.multiplayer.v2.V2GameManager.rosterFrom(newGame)
+                )
+                game.v2GameManager = manager
+                val worldScreen = game.loadGame(newGame)
+                worldScreen.autoSave()
+                launchOnGLThread {
+                    Gdx.app.clipboard.contents = roomId
+                    ToastPopup("Authoritative Multiplayer (experimental) room ID copied to clipboard: [$roomId]".tr(), worldScreen, 4000)
+                }
+            } catch (ex: Exception) {
+                Log.error("Error while hosting v2 game", ex)
+                launchOnGLThread {
+                    popup.reuseWith("Could not host experimental multiplayer game!", true)
+                    rightSideButton.enable()
+                    rightSideButton.setText("Start game!".tr())
+                }
+                Gdx.input.inputProcessor = stage
+            }
+            return@coroutineScope
+        }
+
         if (gameSetupInfo.gameParameters.isOnlineMultiplayer) {
             newGame.isUpToDate = true // So we don't try to download it from dropbox the second after we upload it - the file is not yet ready for loading!
             try {

@@ -67,6 +67,14 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
     lateinit var onlineMultiplayer: Multiplayer
     lateinit var files: UncivFiles
 
+    /**
+     * EXPERIMENTAL / PREVIEW — the active multiplayer-v2 game lifecycle (authoritative netcode,
+     * docs/multiplayer-v2.md), or `null` when no v2 game is running. Set when a v2 game is
+     * hosted/joined; the WorldScreen routes the local player's intents through it and subscribes to
+     * its view refresh. Strictly additive: the classic [onlineMultiplayer] path is unaffected.
+     */
+    var v2GameManager: com.unciv.logic.multiplayer.v2.V2GameManager? = null
+
     var isTutorialTaskCollapsed = false
 
     var worldScreen: WorldScreen? = null
@@ -460,6 +468,9 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
         if (curGameInfo != null) {
             files.autosaves.requestAutoSaveUnCloned(curGameInfo) // Can save gameInfo directly because the user can't modify it on the MainMenuScreen
         }
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2): tear down any active v2 game when leaving to the menu.
+        v2GameManager?.close()
+        v2GameManager = null
         val mainMenuScreen = MainMenuScreen()
         pushScreen(mainMenuScreen)
         return mainMenuScreen
