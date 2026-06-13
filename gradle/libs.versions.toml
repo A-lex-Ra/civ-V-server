@@ -5,6 +5,7 @@ agp = "8.9.3"
 
 kotlin = "2.1.21"
 coroutines = "1.10.2"
+serialization = "1.8.1"
 
 gdx = "1.14.0"
 discord = "v2.0.1"
@@ -40,6 +41,8 @@ coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 
 purity-annotations = { group = "io.github.yairm210", name = "purity-annotations", version.ref = "purity" }
+
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 
 gdx = { group = "com.badlogicgames.gdx", name = "gdx", version.ref = "gdx" }
 gdx-platform = { group = "com.badlogicgames.gdx", name = "gdx-platform", version.ref = "gdx" }

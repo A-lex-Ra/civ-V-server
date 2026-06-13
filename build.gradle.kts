@@ -100,6 +100,19 @@ allprojects {
     }
 }
 
+// Shared, engine-independent multiplayer-v2 wire protocol (pure Kotlin + kotlinx.serialization).
+// Consumed by both the client (:core) and the relay (:server). Must NOT depend on the game engine.
+project(":network") {
+    apply(plugin = "kotlin")
+    // Serialization of the wire protocol (envelopes, frames, commands, checksums)
+    apply(plugin = "kotlinx-serialization")
+
+    dependencies {
+        "implementation"(rootProject.libs.kotlinx.serialization.json)
+        "implementation"(rootProject.libs.purity.annotations)
+    }
+}
+
 project(":desktop") {
     apply(plugin = "kotlin")
 
@@ -131,6 +144,9 @@ project(":server") {
         "api"(rootProject.libs.bundles.ktor.server)
         "implementation"(rootProject.libs.logback)
         "implementation"(rootProject.libs.clikt)
+
+        // Shared multiplayer-v2 wire protocol used by the relay
+        "implementation"(project(":network"))
 
         // clikt somehow needs this
         "api"(rootProject.libs.bundles.jna)
@@ -185,6 +201,9 @@ project(":core") {
         "implementation"(rootProject.libs.purity.annotations)
 
         "api"(rootProject.libs.bundles.ktor.client)
+
+        // Shared multiplayer-v2 wire protocol (engine-independent)
+        "implementation"(project(":network"))
     }
 
 
