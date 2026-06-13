@@ -25,11 +25,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
-import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.ClassDiscriminatorMode
-import kotlinx.serialization.json.Json
+import com.unciv.network.Protocol
+import com.unciv.network.serialization.relayJson
 import java.io.File
 import java.util.Collections.synchronizedMap
 import java.util.Collections.synchronizedSet
@@ -44,7 +43,7 @@ internal object UncivServer {
 }
 
 @Serializable
-data class IsAliveInfo(val authVersion: Int, val chatVersion: Int)
+data class IsAliveInfo(val authVersion: Int, val chatVersion: Int, val relayVersion: Int = 0)
 
 @Serializable
 sealed class Message {
@@ -179,6 +178,12 @@ private class UncivServerRunner : CliktCommand() {
         help = "Enable Authentication"
     ).flag("-no-chat", default = true)
 
+    private val relayV2Enabled by option(
+        "-r", "-relay",
+        envvar = "UncivServerRelay",
+        help = "Enable the multiplayer-v2 WebSocket relay (/relay)"
+    ).flag("-no-relay", default = true)
+
     private val identifyOperators by option(
         "-i", "-Identify",
         envvar = "UncivServerIdentify",
@@ -191,6 +196,7 @@ private class UncivServerRunner : CliktCommand() {
         isAliveInfo = IsAliveInfo(
             authVersion = if (authV1Enabled) 1 else 0,
             chatVersion = if (chatV1Enabled) 1 else 0,
+            relayVersion = if (relayV2Enabled) Protocol.VERSION else 0,
         )
         serverRun(port, folder)
     }
@@ -200,6 +206,8 @@ private class UncivServerRunner : CliktCommand() {
     private val authMap: MutableMap<Uuid, String> = mutableMapOf()
 
     private val wsSessionManager = WebSocketSessionManager()
+
+    private val relayServer = RelayServer()
 
     @OptIn(ExperimentalUuidApi::class)
     private fun loadAuthFile() {
@@ -265,17 +273,13 @@ private class UncivServerRunner : CliktCommand() {
                 }
             }
 
-            if (chatV1Enabled) install(WebSockets) {
+            if (chatV1Enabled || relayV2Enabled) install(WebSockets) {
                 pingPeriod = 30.seconds
                 timeout = 60.seconds
                 maxFrameSize = Long.MAX_VALUE
-                @OptIn(ExperimentalSerializationApi::class)
-                contentConverter = KotlinxWebsocketSerializationConverter(Json {
-                    classDiscriminator = "type"
-                    // DO NOT OMIT
-                    // if omitted the "type" field will be missing from all outgoing messages
-                    classDiscriminatorMode = ClassDiscriminatorMode.ALL_JSON_OBJECTS
-                })
+                // Shared with the multiplayer-v2 relay; uses the same "type" discriminator
+                // convention as the chat protocol (see com.unciv.network.serialization.relayJson).
+                contentConverter = KotlinxWebsocketSerializationConverter(relayJson)
             }
 
             routing {
@@ -283,6 +287,11 @@ private class UncivServerRunner : CliktCommand() {
                     call.application.log.info("Received isalive request from ${call.request.local.remoteHost}")
                     call.respond(isAliveInfo)
                 }
+
+                // Multiplayer-v2 relay: room-based routing of opaque game frames. Membership only,
+                // no game logic. Kept outside the `authenticate` block as it manages its own
+                // identity via the Hello handshake (auth hardening lands in a later phase).
+                if (relayV2Enabled) relayRoutes(relayServer)
 
                 @OptIn(ExperimentalUuidApi::class) authenticate {
                     put("/files/{fileName}") {

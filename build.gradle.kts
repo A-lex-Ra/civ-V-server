@@ -202,8 +202,9 @@ project(":core") {
 
         "api"(rootProject.libs.bundles.ktor.client)
 
-        // Shared multiplayer-v2 wire protocol (engine-independent)
-        "implementation"(project(":network"))
+        // Shared multiplayer-v2 wire protocol (engine-independent). `api` because the v2 public
+        // surface (GameSession, CommandExecutor, RelayTransport) exposes these wire types.
+        "api"(project(":network"))
     }
 
 
@@ -214,6 +215,8 @@ project(":core") {
 
         dependencies {
             "implementation"(project(":core"))
+            // For the multiplayer-v2 relay integration test (embeds the relay server)
+            "implementation"(project(":server"))
 
             "implementation"(rootProject.libs.coroutines.core)
             "implementation"(rootProject.libs.kotlin.reflect)
