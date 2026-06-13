@@ -91,4 +91,54 @@ sealed interface GameFrame {
     @Serializable
     @SerialName("resyncGrant")
     data object ResyncGrant : GameFrame
+
+    /**
+     * Host -> a SPECIFIC client: that player's full **visibility-filtered** snapshot of the game
+     * (see docs/multiplayer-v2.md §5). The authority projects the canonical `GameInfo` down to what
+     * this player may legally see, serialises it to JSON and gzips it into [gzippedFilteredGameInfo].
+     *
+     * Because the snapshot is per-player and redacted, it must be delivered **directed**
+     * ([com.unciv.network.relay.ClientToRelay.RelayTo]) — never broadcast, which would leak one
+     * player's filtered state to the whole room.
+     *
+     * [compatVersion] reuses the existing `GameInfo` save-compatibility machinery (the receiving
+     * client decodes it through the same `gameInfoFromString` path as a save file).
+     *
+     * Carries a [ByteArray], so [equals]/[hashCode] use content comparison (mirrors
+     * [StateCheckpoint]).
+     */
+    @Serializable
+    @SerialName("playerView")
+    data class PlayerView(
+        val turn: Int,
+        val compatVersion: Int,
+        val gzippedFilteredGameInfo: ByteArray
+    ) : GameFrame {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is PlayerView) return false
+            return turn == other.turn &&
+                compatVersion == other.compatVersion &&
+                gzippedFilteredGameInfo.contentEquals(other.gzippedFilteredGameInfo)
+        }
+
+        override fun hashCode(): Int {
+            var result = turn
+            result = 31 * result + compatVersion
+            result = 31 * result + gzippedFilteredGameInfo.contentHashCode()
+            return result
+        }
+    }
+
+    /**
+     * Host -> client: the player's command (carried by an enclosing [PlayerCommand]) was illegal or
+     * declined. [seq] echoes the rejected [PlayerCommand.seq]; [reason] is the
+     * `CommandException` message. The canonical state was left untouched.
+     */
+    @Serializable
+    @SerialName("commandRejected")
+    data class CommandRejected(
+        val seq: Long,
+        val reason: String
+    ) : GameFrame
 }

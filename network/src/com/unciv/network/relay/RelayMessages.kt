@@ -53,6 +53,19 @@ sealed interface ClientToRelay {
     @Serializable
     @SerialName("relay")
     data class Relay(val payload: GameFrame) : ClientToRelay
+
+    /**
+     * Forward an opaque [GameFrame] to a **single** peer ([targetUserId]) in the room, rather than
+     * broadcasting it. The relay routes by membership-level [UserId] only and still never inspects
+     * [payload].
+     *
+     * This is how the authority delivers each player their own **visibility-filtered** snapshot /
+     * delta (e.g. [com.unciv.network.game.GameFrame.PlayerView]): a per-player redacted payload must
+     * not be broadcast, or it would leak one player's filtered state to the others.
+     */
+    @Serializable
+    @SerialName("relayTo")
+    data class RelayTo(val targetUserId: UserId, val payload: GameFrame) : ClientToRelay
 }
 
 /**

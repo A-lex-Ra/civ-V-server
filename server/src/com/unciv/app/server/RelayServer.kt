@@ -102,6 +102,18 @@ class RelayServer {
                         // Forward verbatim to every other member; the relay never inspects payload.
                         broadcast(current, except = session, RelayToClient.Relayed(uid, message.payload))
                     }
+
+                    is ClientToRelay.RelayTo -> {
+                        val uid = userId ?: run { session.replyNeedHello(); continue }
+                        val current = room ?: run {
+                            session.reply(RelayToClient.Error("no_room", "Join a room before relaying"))
+                            continue
+                        }
+                        // Forward verbatim to the single addressed member; never broadcast (a directed
+                        // payload is per-player filtered state). The relay never inspects payload. If the
+                        // target is not in the room it is silently dropped.
+                        sendTo(current, message.targetUserId, RelayToClient.Relayed(uid, message.payload))
+                    }
                 }
             }
         } catch (e: CancellationException) {
@@ -184,6 +196,19 @@ class RelayServer {
         for (target in targets) {
             if (target.isActive) runCatching { target.reply(message) }
         }
+    }
+
+    /**
+     * Deliver [message] to the single peer in [room] whose userId is [targetUserId]. Looks the
+     * target up under the lock (reusing the room's peer membership), then sends outside it. If no
+     * such peer is in the room the message is silently dropped — the relay does not error on a stale
+     * recipient.
+     */
+    private suspend fun sendTo(room: Room, targetUserId: UserId, message: RelayToClient) {
+        val target = synchronized(lock) {
+            room.peers.values.firstOrNull { it.userId == targetUserId }?.session
+        } ?: return
+        if (target.isActive) runCatching { target.reply(message) }
     }
 
     // Serialize against the sealed parent type so the polymorphic discriminator is emitted.
