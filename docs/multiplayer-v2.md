@@ -227,12 +227,24 @@ resulting changes go out as the next round of per-player deltas.
 |------|-------------|---------------|
 | **0** ✓ | This doc + `:network` protocol module skeleton + `core` `v2` package stubs. No behaviour change. | Project compiles; unit tests unchanged. |
 | **1** ✓ | Relay server (rooms/routing/presence) + client relay transport — **pure connectivity** for anyone-can-host. | Two clients exchange frames through the relay. |
-| **2** | `CommandExecutor` + authority applies commands to the canonical `GameInfo` in one process (first: `MoveUnit`). | Unit test: a command mutates `GameInfo` through the bus; an illegal command is rejected. |
-| **3** | **Command-in / visibility-filtered delta-out** protocol + thin client view model; sequential play; runs identically in **dedicated-server and anyone-can-host** modes. | Full game playable sequentially, no file-store; a client holds only its filtered view (cannot see fogged enemy state). |
-| **4** | Client-side prediction + reconciliation for the player's *own* actions. | Own actions feel instant and reconcile against authority deltas. |
-| **5** | **Simultaneous turns** + conflict resolution. | Multi-human simultaneous game resolves correctly. |
-| **6** | Reconnection / desync recovery: a dropped *client* rejoins and gets a fresh filtered `PlayerView`. | Drop + rejoin re-syncs from the authority. |
+| **2** ✓ | `CommandExecutor` + authority applies commands to the canonical `GameInfo` in one process (first: `MoveUnit`). | Unit test: a command mutates `GameInfo` through the bus; an illegal command is rejected. |
+| **3** ✓ | **Command-in / visibility-filtered delta-out** protocol + thin client view model; sequential play; runs identically in **dedicated-server and anyone-can-host** modes. | Authority loop + per-player filtered `PlayerView` (incl. round-trip through `setTransients`); a client holds only its filtered view (cannot see fogged enemy units/cities). Delta-out is via full filtered snapshots; semantic `StateDelta` is deferred (§11). |
+| **4** ✓ | Client-side prediction + reconciliation for the player's *own* actions. | Own actions apply instantly to the local view and reconcile / roll back against authority snapshots. |
+| **5** ✓ | **Simultaneous turns** + conflict resolution. | Multi-human submissions resolve in a deterministic order; first-cut conflicts via executor rejection (deeper combat/capture rules deferred, §11). |
+| **6** ✓ | Reconnection / desync recovery: a dropped *client* rejoins and gets a fresh filtered `PlayerView`. | On-demand `ResyncRequest` → fresh directed `PlayerView` from the authority's current state. |
 | **7** *(far future)* | Host promotion/migration via cold-standby checkpoint. | Kill a client-host → resume from standby. |
+
+> **Implementation status (phases 2–6).** The v2 **mechanisms** above are built and unit-tested
+> (`./gradlew :tests:test --tests 'com.unciv.logic.multiplayer.v2.*'` — 26 tests green): command
+> execution, visibility projection, the authority loop (sequential + simultaneous), client view +
+> prediction, and on-demand resync. **Not yet wired:** the *integration glue* that connects the real
+> `WebSocketRelayTransport` to a running `GameSession` (the host loop that reads inbound `Relayed`
+> frames → `session.onFrame`, and routes outbound frames via `RelayTo`), and the UI/flow to start and
+> play a v2 game. Tests currently drive `GameSession.onFrame` directly. That host-loop wiring is the
+> next step toward an actually-playable v2 — and is where the **identity-binding** security fix must
+> land: the authority must bind a frame's `playerId` to the connection (the relay's `Relayed.fromId`)
+> rather than trusting the frame, or a hostile client could spoof another player (affects
+> `PlayerCommand` and `ResyncRequest`).
 
 ## 11. Open questions
 
