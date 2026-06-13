@@ -14,10 +14,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.Url
 import io.ktor.serialization.kotlinx.KotlinxWebsocketSerializationConverter
 import io.ktor.websocket.close
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
@@ -44,6 +46,14 @@ class WebSocketRelayTransport(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /**
+     * Outbound queue drained by a single sender coroutine, so messages reach the socket in
+     * submission order with only one [sendSerialized] in flight at a time. Launching a coroutine
+     * per [send] on the multi-threaded IO dispatcher would let frames race and reorder, which the
+     * protocol's per-command sequencing relies on not happening.
+     */
+    private val outbound = Channel<ClientToRelay>(Channel.UNLIMITED)
+
     @Volatile
     private var session: DefaultClientWebSocketSession? = null
 
@@ -62,8 +72,23 @@ class WebSocketRelayTransport(
         session = newSession
 
         // Serialize against the sealed parent type so the polymorphic discriminator is emitted.
+        // Sent directly here, before the sender starts draining [outbound], so the handshake is
+        // guaranteed to be the first frame on the wire.
         val hello: ClientToRelay = ClientToRelay.Hello(Protocol.VERSION, userId, authHeader)
         newSession.sendSerialized(hello)
+
+        // Single sender coroutine: preserves submission order, one send in flight at a time.
+        scope.launch {
+            for (message in outbound) {
+                try {
+                    newSession.sendSerialized(message)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Throwable) {
+                    // Best-effort delivery; drop on transient send failure (reconnection later).
+                }
+            }
+        }
 
         scope.launch {
             try {
@@ -71,6 +96,8 @@ class WebSocketRelayTransport(
                     val message = newSession.receiveDeserialized<RelayToClient>()
                     handler?.invoke(message)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (_: Throwable) {
                 // Connection closed or read error: receive loop ends. Reconnection handling is
                 // added together with the session layer in a later phase.
@@ -79,16 +106,15 @@ class WebSocketRelayTransport(
     }
 
     override fun send(message: ClientToRelay) {
-        val currentSession = session
-            ?: throw IllegalStateException("connect() must be called before send()")
-        scope.launch {
-            runCatching { currentSession.sendSerialized(message) }
-        }
+        if (session == null) throw IllegalStateException("connect() must be called before send()")
+        // Non-blocking enqueue; the sender coroutine delivers in order. Fails only after close().
+        outbound.trySend(message)
     }
 
     override fun close() {
         val currentSession = session
         session = null
+        outbound.close()
         scope.launch {
             runCatching { currentSession?.close() }
         }.invokeOnCompletion {

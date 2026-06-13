@@ -14,6 +14,7 @@ import io.ktor.server.websocket.sendSerialized
 import io.ktor.server.websocket.webSocket
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.close
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.isActive
 import java.util.concurrent.atomic.AtomicLong
 
@@ -102,6 +103,10 @@ class RelayServer {
                     }
                 }
             }
+        } catch (e: CancellationException) {
+            // Server/connection shutdown: don't swallow cancellation. Membership cleanup still
+            // runs in `finally` (the synchronized removal has no suspension point).
+            throw e
         } catch (_: Throwable) {
             // Connection error/closed: fall through to cleanup.
         } finally {
