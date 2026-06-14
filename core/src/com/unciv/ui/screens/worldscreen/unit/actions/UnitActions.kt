@@ -238,6 +238,16 @@ object UnitActions {
                         "Disband this unit for [${unit.baseUnit.getDisbandGold(unit.civ)}] gold?".tr()
                     else "Do you really want to disband this unit?".tr()
                     ConfirmPopup(worldScreen, disbandText, "Disband unit") {
+                        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the (confirmed) disband intent
+                        // to the authority, keyed by acting civ + the unit's current tile
+                        // (CommandExecutor.executeDisbandUnit). Sent before the local disband consumes
+                        // the unit; gate only on v2 != null, then FALL THROUGH to the local disband.
+                        val v2 = UncivGame.Current.v2GameManager
+                        if (v2 != null) {
+                            v2.sendCommand(com.unciv.network.command.GameCommand.DisbandUnit(
+                                unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y
+                            ))
+                        }
                         unit.disband()
                         unit.civ.updateStatsForNextTurn() // less upkeep!
                         GUI.setUpdateWorldOnNextRender()
@@ -342,6 +352,16 @@ object UnitActions {
         }
 
         val giftAction = {
+            // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the gift-unit intent to the authority,
+            // keyed by acting civ + the unit's current tile; the recipient is resolved from the tile
+            // owner on the authority (CommandExecutor.executeGiftUnit). Sent before the local gift
+            // consumes/transfers the unit; gate only on v2 != null, then FALL THROUGH.
+            val v2 = UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.GiftUnit(
+                    unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y
+                ))
+            }
             if (recipient.isCityState) {
                 for (unique in unit.getMatchingUniques(
                     UniqueType.GainInfluenceWithUnitGiftToCityState,

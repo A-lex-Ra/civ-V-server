@@ -168,6 +168,12 @@ class BuyButtonFactory(val cityScreen: CityScreen) {
     ) {
         SoundPlayer.play(stat.purchaseSound)
         val city = cityScreen.city
+        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        if (v2 != null) {
+            v2.sendCommand(com.unciv.network.command.GameCommand.BuyConstruction(
+                city.location.x, city.location.y, construction.name, stat.name,
+                tile?.position?.x, tile?.position?.y))
+        }
         if (!city.cityConstructions.purchaseConstruction(construction, cityScreen.selectedQueueEntry, false, stat, tile)) {
             Popup(cityScreen).apply {
                 add("No space available to place [${construction.name}] near [${city.name}]".tr()).row()

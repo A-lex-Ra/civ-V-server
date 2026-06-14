@@ -77,6 +77,20 @@ class ReligiousBeliefsPickerScreen (
             if (pickIconAndName) "Choose a Religion"
             else "Enhance [${currentReligion.getReligionDisplayName()}]"
         ) {
+            // multiplayer-v2 DEFERRED (FoundReligion / EnhanceReligion):
+            // GameCommand.FoundReligion / EnhanceReligion both require the founding/enhancing prophet's
+            // tile (unitX/unitY) — the authority's executeFoundReligion/executeEnhanceReligion replay
+            // the full flow from a prophet-alive state (requireUnitOnTile + the FoundReligion/
+            // EnhanceReligion unit-action availability check). At THIS confirm site the prophet is
+            // already gone: the Found/Enhance *unit action* (UnitActionsReligion) consumes the prophet
+            // and only sets religionState; this picker is opened later from the NextTurnAction button
+            // and merely chooses the name + beliefs. The picker has no public handle to that tile
+            // (ReligionManager.foundingCityId is private and getHolyCity() is null during founding), so
+            // the command cannot be assembled cleanly here without guessing an engine API.
+            // => Emit FoundReligion(unitX,unitY,religionName,displayName,beliefNames) /
+            //    EnhanceReligion(unitX,unitY,beliefNames) from the FoundReligion/EnhanceReligion unit
+            //    action in UnitActionsReligion.kt (where the prophet's tile is in scope), carrying the
+            //    name + chosen beliefs forward. Owned by the unit-actions agent; left unwired here.
             if (civInfo.religionManager.religionState == ReligionState.FoundingReligion)
                 civInfo.religionManager.foundReligion(displayName!!, religionName!!)
             chooseBeliefs(beliefsToChoose.map { it.belief!! }, usingFreeBeliefs())

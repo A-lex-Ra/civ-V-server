@@ -1,0 +1,3 @@
+v2 multiplayer issues:
+- on the first turn one client placed first city and "won game" by acquiring all the capitals
+- on the second turn this city diappeared, on the third turn i got new Settler...

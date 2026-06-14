@@ -100,6 +100,17 @@ object UnitActionsReligion {
             UnitActionType.SpreadReligion, useFrequency,
             title = title,
             action = {
+                // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the spread-religion intent to the
+                // authority. The missionary acts on its own current tile, which is the target city's
+                // center, so unit tile == target-city tile (CommandExecutor.executeSpreadReligion).
+                // Gate only on v2 != null, then FALL THROUGH to the local side effects.
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.SpreadReligion(
+                        unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y,
+                        targetCityX = city.location.x, targetCityY = city.location.y
+                    ))
+                }
                 val followersOfOtherReligions = city.religion.getFollowersOfOtherReligionsThan(unit.religion!!)
                 for (unique in unit.getMatchingUniques(UniqueType.StatsWhenSpreading, checkCivInfoUniques = true)) {
                     unit.civ.addStat(Stat.valueOf(unique.params[1]), followersOfOtherReligions * unique.params[0].toInt())
@@ -149,6 +160,17 @@ object UnitActionsReligion {
             UnitActionType.RemoveHeresy, useFrequency,
             title = title,
             action = {
+                // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the remove-heresy intent to the
+                // authority. The inquisitor acts on its own current tile, which is the target (own)
+                // city's center, so unit tile == target-city tile
+                // (CommandExecutor.executeRemoveHeresy). Gate only on v2 != null, then FALL THROUGH.
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.RemoveHeresy(
+                        unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y,
+                        targetCityX = city.location.x, targetCityY = city.location.y
+                    ))
+                }
                 city.religion.removeAllPressuresExceptFor(unit.religion!!)
                 if (city.religion.religionThisIsTheHolyCityOf != null) {
                     val holyCityReligion = unit.civ.gameInfo.religions[city.religion.religionThisIsTheHolyCityOf]!!

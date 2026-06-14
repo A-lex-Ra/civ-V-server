@@ -643,6 +643,14 @@ class PolicyPickerScreen(
                     this,
                     "Are you sure you want to adopt [${branch.name}]?",
                     "Adopt", true, action = {
+                        // multiplayer-v2: a branch adoption is keyed by the branch's own name; send the
+                        // intent before the local mutation, then FALL THROUGH.
+                        val v2 = com.unciv.UncivGame.Current.v2GameManager
+                        if (v2 != null) {
+                            v2.sendCommand(com.unciv.network.command.GameCommand.AdoptPolicy(
+                                policyName = branch.name
+                            ))
+                        }
                         viewingCiv.policies.adopt(branch, false)
                         game.replaceCurrentScreen(recreate())
                     }
@@ -666,6 +674,13 @@ class PolicyPickerScreen(
         // Evil people clicking on buttons too fast to confuse the screen - #4977
         if (!policy.isPickable(viewingCiv, canChangeState)) return
 
+        // multiplayer-v2: send the adoption intent before the local mutation, then FALL THROUGH.
+        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        if (v2 != null) {
+            v2.sendCommand(com.unciv.network.command.GameCommand.AdoptPolicy(
+                policyName = policy.name
+            ))
+        }
         viewingCiv.policies.adopt(policy)
 
         // If we've moved to another screen in the meantime (great person pick, victory screen) ignore this

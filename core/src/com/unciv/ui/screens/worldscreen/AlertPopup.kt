@@ -262,6 +262,14 @@ class AlertPopup(
                 if (otherciv.nation.declaringFriendship.isNotEmpty()) otherciv.nation.declaringFriendship else "My friend, shall we declare our friendship to the world?"
         ).row()
         addCloseButton("Declare Friendship ([30] turns)", KeyboardBinding.Confirm) {
+            // multiplayer-v2: the human is *accepting* a friendship offer here — route the intent
+            // before the local mutation, then FALL THROUGH to the existing local action.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.DeclareFriendship(
+                    targetCivName = otherciv.civName
+                ))
+            }
             playerDiploManager.signDeclarationOfFriendship()
         }.row()
         addCloseButton("We are not interested.", KeyboardBinding.Cancel) {
@@ -314,9 +322,23 @@ class AlertPopup(
         addLeaderName(otherciv)
         addGoodSizedLabel(demand.demandText).row()
         addCloseButton(demand.acceptDemandText, KeyboardBinding.Confirm) {
+            // multiplayer-v2: only the human responding here. Send the intent before the local
+            // mutation, then FALL THROUGH to the existing local action.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.DemandResponse(
+                    targetCivName = otherciv.civName, demandName = demand.name, agree = true
+                ))
+            }
             playerDiploManager.agreeToDemand(demand)
         }.row()
         addCloseButton(demand.refuseDemandText, KeyboardBinding.Cancel) {
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.DemandResponse(
+                    targetCivName = otherciv.civName, demandName = demand.name, agree = false
+                ))
+            }
             playerDiploManager.refuseDemand(demand)
             if (demand == Demand.DoNotAttackUs)
                 viewingCiv.getDiplomacyManager(otherciv)!!.declareWar()

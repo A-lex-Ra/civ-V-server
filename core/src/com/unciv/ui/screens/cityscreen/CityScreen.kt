@@ -309,6 +309,10 @@ class CityScreen(
             val annexCityButton = "Annex city".toTextButton()
             annexCityButton.labelCell.pad(10f)
             annexCityButton.onClick {
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.AnnexCity(city.location.x, city.location.y))
+                }
                 city.annexCity()
                 update()
             }
@@ -317,7 +321,13 @@ class CityScreen(
         } else if (!city.isBeingRazed) {
             val razeCityButton = "Raze city".toTextButton()
             razeCityButton.labelCell.pad(10f)
-            razeCityButton.onClick { city.isBeingRazed = true; update() }
+            razeCityButton.onClick {
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.RazeCity(city.location.x, city.location.y, true))
+                }
+                city.isBeingRazed = true; update()
+            }
             if (!canChangeState || !city.canBeDestroyed() || !canAnnex) {
                 razeCityButton.disable()
             }
@@ -326,7 +336,13 @@ class CityScreen(
         } else {
             val stopRazingCityButton = "Stop razing city".toTextButton()
             stopRazingCityButton.labelCell.pad(10f)
-            stopRazingCityButton.onClick { city.isBeingRazed = false; update() }
+            stopRazingCityButton.onClick {
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.RazeCity(city.location.x, city.location.y, false))
+                }
+                city.isBeingRazed = false; update()
+            }
             if (!canChangeState) stopRazingCityButton.disable()
             razeCityButtonHolder.add(stopRazingCityButton) //.colspan(cityPickerTable.columns)
         }
@@ -446,6 +462,11 @@ class CityScreen(
             restoreDefault = { update() }
         ) {
             SoundPlayer.play(UncivSound.Coin)
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.BuyTile(
+                    city.location.x, city.location.y, selectedTile.position.x, selectedTile.position.y))
+            }
             city.expansion.buyTile(selectedTile)
             // preselect the next tile on city screen rebuild so bulk buying can go faster
             UncivGame.Current.replaceCurrentScreen(CityScreen(city, initSelectedTile = city.expansion.chooseNewTileToOwn()))
@@ -462,8 +483,18 @@ class CityScreen(
         if (!tile.isWorked()) // If not worked, try to work it first
             tileWorkedIconOnClick(tileGroup, city)
 
-        if (tile.isWorked())
+        if (tile.isWorked()) {
+            // Only a not-yet-locked worked tile actually changes lock state here; the executor's
+            // ToggleLockedTile would otherwise unlock an already-locked tile on the authority.
+            if (!city.lockedTiles.contains(tile.position)) {
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.ToggleLockedTile(
+                        city.location.x, city.location.y, tile.position.x, tile.position.y))
+                }
+            }
             city.lockedTiles.add(tile.position)
+        }
 
         update()
     }

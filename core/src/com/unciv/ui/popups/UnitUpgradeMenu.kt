@@ -106,15 +106,36 @@ class UnitUpgradeMenu(
 
     private fun doUpgrade() {
         SoundPlayer.play(unitAction.uncivSound)
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the (paid) upgrade intent to the authority
+        // before the local performUpgrade replaces the unit instance. Keyed by acting civ + the unit's
+        // current tile + the target base-unit name (CommandExecutor.executeUpgradeUnit). Gate on
+        // v2 != null only; then FALL THROUGH to the local upgrade for optimistic feedback.
+        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        if (v2 != null) {
+            v2.sendCommand(com.unciv.network.command.GameCommand.UpgradeUnit(
+                unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y,
+                toUnitName = unitToUpgradeTo.name
+            ))
+        }
         unitAction.action!!()
     }
 
     private fun doAllUpgrade() {
         SoundPlayer.playRepeated(unitAction.uncivSound)
+        val v2 = com.unciv.UncivGame.Current.v2GameManager
         for (unit in allUpgradableUnits) {
             val otherAction = UnitActionsUpgrade.getUpgradeActions(unit)
                 .firstOrNull{ (it as UpgradeUnitAction).unitToUpgradeTo == unitToUpgradeTo &&
                     it.action != null }
+            // EXPERIMENTAL / PREVIEW (multiplayer-v2): send one UpgradeUnit per unit, keyed by its
+            // current tile, BEFORE performUpgrade replaces the instance. Then fall through to the
+            // local invoke. Only send for units the local action actually accepted.
+            if (v2 != null && otherAction?.action != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.UpgradeUnit(
+                    unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y,
+                    toUnitName = unitToUpgradeTo.name
+                ))
+            }
             otherAction?.action?.invoke()
         }
     }

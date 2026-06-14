@@ -46,6 +46,12 @@ class GreatPersonPickerScreen(val worldScreen: WorldScreen, val civInfo: Civiliz
     }
 
     private fun confirmAction(useMayaLongCount: Boolean) {
+        // multiplayer-v2: route the great-person choice to the authority before the local apply,
+        // following the MoveUnit template (gate on v2 != null; send; FALL THROUGH). This is the
+        // single confirm choke-point for both the OK button and the double-click.
+        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        if (v2 != null)
+            v2.sendCommand(com.unciv.network.command.GameCommand.ChooseGreatPerson(theChosenOne!!.name))
         civInfo.units.addUnit(theChosenOne!!, civInfo.getCapital())
         civInfo.greatPeople.freeGreatPeople--
         if (useMayaLongCount) {

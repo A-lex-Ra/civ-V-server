@@ -85,6 +85,15 @@ class TradePopup(worldScreen: WorldScreen) : Popup(worldScreen) {
         addGoodSizedLabel(nation.tradeRequest).pad(15f).row()
 
         addButton("Sounds good!", 'y') {
+            // multiplayer-v2: the human accepts an incoming trade request — route the intent before
+            // the local mutation, then FALL THROUGH to the existing local action. The authority
+            // matches the pending tradeRequests entry by requesting-civ.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.RespondToTrade(
+                    fromCivName = requestingCiv.civName, accept = true
+                ))
+            }
             val tradeLogic = TradeLogic(viewingCiv, requestingCiv)
             tradeLogic.currentTrade.set(trade)
             tradeLogic.acceptTrade()
@@ -94,6 +103,14 @@ class TradePopup(worldScreen: WorldScreen) : Popup(worldScreen) {
         }.row()
 
         addButton("Not this time.", 'n') {
+            // multiplayer-v2: the human declines an incoming trade request — route the intent before
+            // the local mutation, then FALL THROUGH to the existing local action.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.RespondToTrade(
+                    fromCivName = requestingCiv.civName, accept = false
+                ))
+            }
             tradeRequest.decline(viewingCiv)
             close()
             requestingCiv.addNotification("[${viewingCiv.civName}] has denied your trade request", NotificationCategory.Trade, viewingCiv.civName, NotificationIcon.Trade)

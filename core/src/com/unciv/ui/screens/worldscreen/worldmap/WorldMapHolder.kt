@@ -326,19 +326,25 @@ class WorldMapHolder(
             val v2 = UncivGame.Current.v2GameManager
             if (v2 != null) {
                 val fromTile = selectedUnit.currentTile
-                if (fromTile != tileToMoveTo) {
+                if (selectedUnit.isPreparingParadrop()) {
+                    // EXPERIMENTAL / PREVIEW (multiplayer-v2): a preparing-paradrop unit reaches this
+                    // path too, but a paradrop is NOT a normal move (the authority's move gate would
+                    // reject the airborne destination). Route it as a dedicated Paradrop intent keyed
+                    // by acting civ + the unit's current tile + the clicked destination tile
+                    // (CommandExecutor.executeParadrop), then FALL THROUGH to the local move below.
+                    if (fromTile != targetTile) {
+                        v2.sendCommand(com.unciv.network.command.GameCommand.Paradrop(
+                            unitX = fromTile.position.x, unitY = fromTile.position.y,
+                            targetX = targetTile.position.x, targetY = targetTile.position.y
+                        ))
+                    }
+                } else if (fromTile != tileToMoveTo) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.MoveUnit(
                         unitId = 0, // ignored by the executor; the unit is keyed by acting civ + source tile
                         fromX = fromTile.position.x, fromY = fromTile.position.y,
                         toX = tileToMoveTo.position.x, toY = tileToMoveTo.position.y
                     ))
                 }
-                // TODO (multiplayer-v2): only MoveUnit + EndTurn are routed as commands so far. The
-                //   catalogue commands (FoundCity, AttackUnit, SetCityProduction, ChooseTech,
-                //   PromoteUnit, GenericUnitAction) AND the matching send-helpers all exist already
-                //   (network/.../GameCommand.kt + V2GameManager.sendCommand); each just needs the same
-                //   per-action interception at its UI mutation point (UnitActions, CityScreen
-                //   production, TechPickerScreen, PromotionPickerScreen, BattleTable).
             }
 
             worldScreen.recordUndoCheckpoint()
@@ -436,6 +442,20 @@ class WorldMapHolder(
 
     internal fun swapMoveUnitToTargetTile(selectedUnit: MapUnit, targetTile: Tile) {
         markUnitMoveTutorialComplete(selectedUnit)
+
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the unit-swap intent to the authority, keyed
+        // by acting civ + the unit's current tile + the swap-partner tile
+        // (CommandExecutor.executeSwapUnits). Captured before the local swapMoveToTile moves the units;
+        // gate only on v2 != null, then FALL THROUGH to the local swap for optimistic feedback.
+        val v2 = UncivGame.Current.v2GameManager
+        if (v2 != null) {
+            val fromTile = selectedUnit.currentTile
+            v2.sendCommand(com.unciv.network.command.GameCommand.SwapUnits(
+                unitX = fromTile.position.x, unitY = fromTile.position.y,
+                otherX = targetTile.position.x, otherY = targetTile.position.y
+            ))
+        }
+
         selectedUnit.movement.swapMoveToTile(targetTile, keepEscorting = true)
 
         if (selectedUnit.isExploring() || selectedUnit.isMoving())

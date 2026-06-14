@@ -58,6 +58,22 @@ class UnitActionsTable(val worldScreen: WorldScreen) : Table() {
             UnitActionType.StopMovement,
             UnitActionType.StopExploration,
             UnitActionType.StopAutomation,
+            // Extended set: actions CommandExecutor.executeGenericUnitAction now applies headlessly —
+            // either via applySimpleUnitActionDirectly (Automate, Pillage) or via the type-filtered
+            // MAPPED_HEADLESS_SAFE_ACTIONS path (SetUp, AirSweep, Repair, CreateImprovement and the
+            // on-map Great-Person actions). ConstructImprovement is excluded — it has the dedicated
+            // BuildImprovement command; FoundCity/Promote/Attack/Move are routed at their own sites.
+            UnitActionType.SetUp,
+            UnitActionType.AirSweep,
+            UnitActionType.Repair,
+            UnitActionType.Automate,
+            UnitActionType.Pillage,
+            UnitActionType.CreateImprovement,
+            UnitActionType.HurryResearch,
+            UnitActionType.HurryPolicy,
+            UnitActionType.HurryWonder,
+            UnitActionType.HurryBuilding,
+            UnitActionType.ConductTradeMission,
         )
     }
 

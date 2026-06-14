@@ -316,6 +316,14 @@ class DiplomacyScreen(
         }
         declareWarButton.onClick {
             ConfirmPopup(this, getDeclareWarButtonText(otherCiv), "Declare war") {
+                // multiplayer-v2: route the intent through the authoritative GameSession before the
+                // local mutation, then FALL THROUGH to the existing local action (optimistic feedback).
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.DeclareWar(
+                        targetCivName = otherCiv.civName
+                    ))
+                }
                 diplomacyManager.declareWar()
                 setRightSideFlavorText(otherCiv, otherCiv.nation.attacked, "Very well.")
                 updateLeftSideTable(otherCiv)

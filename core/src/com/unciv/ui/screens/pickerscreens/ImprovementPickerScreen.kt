@@ -63,6 +63,20 @@ class ImprovementPickerScreen(
             // no onAccept() - Worker can stay selected
         } else {
             if (improvement.name != tile.improvementInProgress) {
+                // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the build-improvement intent to the
+                // authority, keyed by acting civ + the worker's current tile + the picked improvement
+                // name (CommandExecutor.executeBuildImprovement). Sent before the local
+                // startWorkingOnImprovement; gate only on v2 != null, then FALL THROUGH.
+                // NOTE: a queued removal-then-build (secondImprovement) is only partially carried —
+                // the command sends the primary `improvement`; the queued secondImprovement is not
+                // (yet) a separate command. See report.
+                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.BuildImprovement(
+                        unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y,
+                        improvementName = improvement.name
+                    ))
+                }
                 tile.startWorkingOnImprovement(improvement, currentPlayerCiv, unit)
                 if (secondImprovement != null)
                     tile.queueImprovement(secondImprovement, currentPlayerCiv, unit)

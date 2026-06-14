@@ -336,6 +336,15 @@ class EspionageOverviewScreen(val civInfo: Civilization, val worldScreen: WorldS
         }
 
         private fun move() {
+            // multiplayer-v2: route the spy move to the authority before the local apply, following
+            // the MoveUnit template (gate on v2 != null; send; FALL THROUGH). A null location is the
+            // Spy Hideout — use the executor's HIDEOUT sentinel for both target coords.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                val targetX = location?.location?.x ?: com.unciv.network.command.GameCommand.MoveSpy.HIDEOUT
+                val targetY = location?.location?.y ?: com.unciv.network.command.GameCommand.MoveSpy.HIDEOUT
+                v2.sendCommand(com.unciv.network.command.GameCommand.MoveSpy(selectedSpy!!.name, targetX, targetY))
+            }
             selectedSpy!!.moveTo(location)
             resetSelection()
             update()
@@ -376,6 +385,11 @@ class EspionageOverviewScreen(val civInfo: Civilization, val worldScreen: WorldS
 
         override fun clickHandler() {
             val spy = selectedSpy!!
+            // multiplayer-v2: route the spy-action intent to the authority before the local apply,
+            // following the MoveUnit template (gate on v2 != null; send; FALL THROUGH). These are the
+            // only player-settable spy actions (Coup / CounterIntelligence); the wire carries the
+            // SpyAction enum constant name.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
             if (!isCurrentAction) {
                 ConfirmPopup(this@EspionageOverviewScreen,
                     "Do you want to stage a coup in [${location!!.civ.civName}] with a " +
@@ -383,11 +397,15 @@ class EspionageOverviewScreen(val civInfo: Civilization, val worldScreen: WorldS
                         "chance of success?",
                     "Stage Coup"
                 ) {
+                    if (v2 != null)
+                        v2.sendCommand(com.unciv.network.command.GameCommand.SetSpyAction(spy.name, SpyAction.Coup.name))
                     spy.setAction(SpyAction.Coup, 1)
                     fist.color = Color.DARK_GRAY
                     update()
                 }.open()
             } else {
+                if (v2 != null)
+                    v2.sendCommand(com.unciv.network.command.GameCommand.SetSpyAction(spy.name, SpyAction.CounterIntelligence.name))
                 spy.setAction(SpyAction.CounterIntelligence, 10)
                 fist.color = Color.WHITE
                 update()

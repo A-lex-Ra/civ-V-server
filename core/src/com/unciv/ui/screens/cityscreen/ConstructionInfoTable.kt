@@ -160,6 +160,11 @@ class ConstructionInfoTable(val cityScreen: CityScreen) : Table() {
     }
 
     private fun sellBuildingConfirmed(construction: Building) {
+        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        if (v2 != null) {
+            v2.sendCommand(com.unciv.network.command.GameCommand.SellBuilding(
+                cityScreen.city.location.x, cityScreen.city.location.y, construction.name))
+        }
         cityScreen.city.sellBuilding(construction)
         cityScreen.clearSelection()
         cityScreen.update()

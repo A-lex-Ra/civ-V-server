@@ -31,6 +31,12 @@ class PantheonPickerScreen(
         }
 
         setOKAction("Choose a pantheon") {
+            // multiplayer-v2: route the founding intent to the authority before the local apply,
+            // following the MoveUnit template (gate on v2 != null; send; FALL THROUGH). FoundPantheon
+            // is self-contained (just the chosen belief name) — no unit locator needed.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null)
+                v2.sendCommand(com.unciv.network.command.GameCommand.FoundPantheon(selectedPantheon!!.name))
             chooseBeliefs(listOf(selectedPantheon!!), useFreeBeliefs = usingFreeBeliefs())
         }
     }
