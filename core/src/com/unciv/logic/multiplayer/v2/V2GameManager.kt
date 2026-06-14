@@ -16,8 +16,12 @@ import com.unciv.network.relay.RelayToClient
 import com.unciv.utils.Log
 import io.ktor.http.Url
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -177,6 +181,46 @@ class V2GameManager {
     /** The latest filtered [GameInfo] the client holds, or null (client mode, before first view). */
     fun currentClientView(): GameInfo? = clientView?.currentView
 
+    /**
+     * Ask the authority for an immediate fresh filtered snapshot (client mode only). A joining client
+     * needs this because the host only broadcasts a [GameFrame.PlayerView] on EndTurn — without an
+     * explicit request, a player who joins mid-turn would block until the next turn advance. Thin
+     * pass-through to [V2GameClient.sendResyncRequest]; no-op (with a warning) if there is no client.
+     *
+     * The first inbound [GameFrame.PlayerView] then lands in [clientView] and fires [onView]; callers
+     * typically follow this with [awaitFirstView].
+     */
+    fun requestInitialView() {
+        val c = client
+        if (c == null) {
+            Log.debug("V2GameManager.requestInitialView called with no client (host mode or not connected)")
+            return
+        }
+        c.sendResyncRequest()
+    }
+
+    /**
+     * Suspend until the client has decoded its first filtered [GameInfo] (the response to
+     * [requestInitialView]), or [timeout] elapses. Polls [currentClientView]; the host id must
+     * already be known for [requestInitialView] to have reached the authority, so this also retries
+     * the resync request periodically in case the very first one raced the relay `Welcome`.
+     *
+     * @return the first filtered [GameInfo], or `null` on timeout (caller should error + [close]).
+     */
+    suspend fun awaitFirstView(timeout: Duration = FIRST_VIEW_TIMEOUT): GameInfo? =
+        withTimeoutOrNull(timeout) {
+            var view = currentClientView()
+            while (view == null) {
+                delay(VIEW_POLL_INTERVAL)
+                // Re-request: the host id is latched off the relay Welcome on the receive thread, so
+                // the first requestInitialView() may have run before the host was known and silently
+                // thrown inside the client. A cheap periodic retry covers that startup race.
+                runCatching { client?.sendResyncRequest() }
+                view = currentClientView()
+            }
+            view
+        }
+
     /** Tear down the transport and drop references. Safe to call multiple times. */
     fun close() {
         runCatching { transport?.close() }
@@ -188,6 +232,12 @@ class V2GameManager {
 
     companion object {
         private val HANDSHAKE_TIMEOUT = 15.seconds
+
+        /** Default ceiling for [awaitFirstView] — how long a joining client waits for its first snapshot. */
+        private val FIRST_VIEW_TIMEOUT = 20.seconds
+
+        /** Poll/retry cadence inside [awaitFirstView]. */
+        private val VIEW_POLL_INTERVAL = 250.milliseconds
 
         /**
          * Build the relay WebSocket URL from a configured multiplayer server base URL. Accepts

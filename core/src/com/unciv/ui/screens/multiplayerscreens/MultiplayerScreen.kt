@@ -44,6 +44,7 @@ class MultiplayerScreen : PickerScreen() {
     private val gameSpecificButtons = listOf(copyGameIdButton, resignButton, deleteButton, renameButton)
 
     private val addGameButton = createAddGameButton()
+    private val joinV2GameButton = createJoinV2GameButton()
     private val copyUserIdButton = createCopyUserIdButton()
     private val friendsListButton = createFriendsListButton()
     private val refreshButton = createRefreshButton()
@@ -102,6 +103,7 @@ class MultiplayerScreen : PickerScreen() {
         val generalActions = Table().apply { defaults().pad(10f) }
         generalActions.add(copyUserIdButton).row()
         generalActions.add(addGameButton).row()
+        generalActions.add(joinV2GameButton).row()
         generalActions.add(friendsListButton).row()
         generalActions.add(refreshButton).row()
         return generalActions
@@ -132,6 +134,18 @@ class MultiplayerScreen : PickerScreen() {
         val btn = "Add multiplayer game".toTextButton()
         btn.onClick {
             game.pushScreen(AddMultiplayerGameScreen(this))
+        }
+        return btn
+    }
+
+    /**
+     * EXPERIMENTAL / PREVIEW (multiplayer-v2): opens the [JoinV2GameScreen] to join a hosted
+     * authoritative v2 game by its relay Room ID. The matching HOST entry lives in NewGameScreen.
+     */
+    private fun createJoinV2GameButton(): TextButton {
+        val btn = "Join experimental game (v2)".toTextButton()
+        btn.onClick {
+            game.pushScreen(JoinV2GameScreen())
         }
         return btn
     }

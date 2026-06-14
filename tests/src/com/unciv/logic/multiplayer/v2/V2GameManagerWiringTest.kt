@@ -8,12 +8,15 @@ import com.unciv.logic.files.UncivFiles
 import com.unciv.models.metadata.GameParameters
 import com.unciv.testing.GdxTestRunner
 import com.unciv.testing.TestGame
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Wiring checks for the multiplayer-v2 UI integration (docs/multiplayer-v2.md §10 — UI/flow glue):
@@ -88,5 +91,22 @@ class V2GameManagerWiringTest {
         val roster = V2GameManager.rosterFrom(testGame.gameInfo)
         assertEquals("Only the human civ (with a playerId) is in the roster", 1, roster.size)
         assertEquals(human.civID, roster["user-uuid-1"])
+    }
+
+    /**
+     * The join-side pass-throughs ([V2GameManager.requestInitialView] / [V2GameManager.awaitFirstView])
+     * must degrade safely before a client is connected: requesting a view is a no-op (no NPE / throw),
+     * and awaiting the first view times out to `null` (the signal the JoinV2GameScreen uses to error +
+     * close) rather than hanging. No transport involved — pure manager behaviour.
+     */
+    @Test
+    fun joinPassThroughsAreSafeWithoutClient() {
+        val manager = V2GameManager()
+        // requestInitialView with no client: a no-op, must not throw.
+        manager.requestInitialView()
+        // awaitFirstView with no client: short timeout -> null (never a hang, never a snapshot).
+        val view = runBlocking { manager.awaitFirstView(300.milliseconds) }
+        assertNull("awaitFirstView must time out to null when no view ever arrives", view)
+        manager.close() // idempotent / safe even though nothing was connected
     }
 }
