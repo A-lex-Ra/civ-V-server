@@ -270,4 +270,193 @@ sealed interface GameCommand {
     ) : GameCommand
 
     // endregion
+
+    // region City management
+
+    /**
+     * The acting civ purchases [constructionName] (a building or unit) in its city centered on
+     * ([cityX], [cityY]), paying with the stat named [stat] (a [com.unciv.models.stats.Stat] constant
+     * name — only Gold/Faith/etc. usable to buy; Production/Happiness are rejected by the engine gate).
+     *
+     * For a building carrying `CreatesOneImprovement`, [improvementTileX]/[improvementTileY] pick the
+     * tile to place the improvement on (as the CityScreen tile-picker does); leave both null to let the
+     * engine auto-choose. Validated with the engine's own
+     * `CityConstructions.isConstructionPurchaseAllowed` (the one true buy test), then delegated to
+     * `CityConstructions.purchaseConstruction(...)`.
+     */
+    @Serializable
+    @SerialName("buyConstruction")
+    data class BuyConstruction(
+        val cityX: Int,
+        val cityY: Int,
+        val constructionName: String,
+        val stat: String,
+        val improvementTileX: Int? = null,
+        val improvementTileY: Int? = null
+    ) : GameCommand
+
+    /**
+     * The acting civ flags its city centered on ([cityX], [cityY]) for razing ([raze] = true) or
+     * stops razing it ([raze] = false).
+     *
+     * Mirrors the CityScreen raze/stop-razing buttons: when starting to raze, the engine's
+     * `City.canBeDestroyed()` gate (plus the "may not annex" rule) is validated before setting
+     * `city.isBeingRazed`.
+     */
+    @Serializable
+    @SerialName("razeCity")
+    data class RazeCity(
+        val cityX: Int,
+        val cityY: Int,
+        val raze: Boolean
+    ) : GameCommand
+
+    /**
+     * The acting civ annexes its puppet city centered on ([cityX], [cityY]).
+     *
+     * Mirrors the CityScreen "Annex city" button (only shown for a puppet of a civ that may annex).
+     * Delegates to `CityConquestFunctions.annexCity()` via `City.annexCity()`.
+     */
+    @Serializable
+    @SerialName("annexCity")
+    data class AnnexCity(
+        val cityX: Int,
+        val cityY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ buys the tile ([tileX], [tileY]) for its city centered on ([cityX], [cityY]),
+     * paying gold.
+     *
+     * Mirrors the CityScreen "Buy tile" path: validated with `CityExpansionManager.canBuyTile` and an
+     * affordability check, then delegated to `CityExpansionManager.buyTile(tile)`.
+     */
+    @Serializable
+    @SerialName("buyTile")
+    data class BuyTile(
+        val cityX: Int,
+        val cityY: Int,
+        val tileX: Int,
+        val tileY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ sets the citizen-allocation focus of its city centered on ([cityX], [cityY]) to
+     * [focusName] (a [com.unciv.logic.city.CityFocus] constant name).
+     *
+     * Mirrors the CitizenManagementTable focus buttons: `City.setCityFocus(focus)` followed by
+     * `City.reassignPopulation()`.
+     */
+    @Serializable
+    @SerialName("setCityFocus")
+    data class SetCityFocus(
+        val cityX: Int,
+        val cityY: Int,
+        val focusName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ resets the citizen allocation of its city centered on ([cityX], [cityY]),
+     * unlocking all tiles.
+     *
+     * Mirrors the CitizenManagementTable "Reset Citizens" button: `City.reassignPopulation(true)`.
+     */
+    @Serializable
+    @SerialName("resetCitizens")
+    data class ResetCitizens(
+        val cityX: Int,
+        val cityY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ toggles the "Avoid Growth" setting of its city centered on ([cityX], [cityY]).
+     *
+     * Mirrors the CitizenManagementTable "Avoid Growth" button: flips `City.avoidGrowth` then
+     * `City.reassignPopulation()`.
+     */
+    @Serializable
+    @SerialName("toggleAvoidGrowth")
+    data class ToggleAvoidGrowth(
+        val cityX: Int,
+        val cityY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ toggles the locked state of the worked tile ([tileX], [tileY]) of its city
+     * centered on ([cityX], [cityY]).
+     *
+     * Mirrors the CityScreenTileTable Lock/Unlock buttons: a locked tile keeps its assigned citizen
+     * across reassignment. Only a tile currently worked by the city can be (un)locked.
+     */
+    @Serializable
+    @SerialName("toggleLockedTile")
+    data class ToggleLockedTile(
+        val cityX: Int,
+        val cityY: Int,
+        val tileX: Int,
+        val tileY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ sells the building [buildingName] from its city centered on ([cityX], [cityY]).
+     *
+     * Mirrors the ConstructionInfoTable "Sell" button: validated for a sellable, built, non-free
+     * building (and at most one sale per turn) before delegating to `City.sellBuilding(building)`.
+     */
+    @Serializable
+    @SerialName("sellBuilding")
+    data class SellBuilding(
+        val cityX: Int,
+        val cityY: Int,
+        val buildingName: String
+    ) : GameCommand
+
+    // NOTE: ToggleWeLoveTheKing is intentionally DEFERRED. There is no player-initiated WLTK action
+    // in the engine or UI: We-Love-The-King-Day is set exclusively by the engine in
+    // `CityTurnManager.tryWeLoveTheKing()` when a city has its `demandedResource` available, and the
+    // "CityStatsTable" WLTK label only opens a Civilopedia tutorial popup. There is no `City` method
+    // to toggle the flag, so a command would have to hand-roll the `CityFlags.WeLoveTheKing` flag,
+    // which the architecture forbids ("never hand-roll state"). See the executor for the same note.
+
+    // endregion
+
+    // region Espionage
+
+    /**
+     * The acting civ moves its spy named [spyName] to the city centered on ([targetCityX],
+     * [targetCityY]), or recalls it to the hideout when both coordinates equal [HIDEOUT] (the
+     * sentinel for "no city").
+     *
+     * Spies are keyed by their stable `Spy.name` (a `lateinit val`-style name set at construction and
+     * unique within a civ's spy list). Validated with `Spy.canMoveTo(city)` before delegating to
+     * `Spy.moveTo(city)` (or `moveTo(null)` for the hideout).
+     */
+    @Serializable
+    @SerialName("moveSpy")
+    data class MoveSpy(
+        val spyName: String,
+        val targetCityX: Int,
+        val targetCityY: Int
+    ) : GameCommand {
+        companion object {
+            /** Sentinel position meaning "move the spy to the hideout" (no target city). */
+            const val HIDEOUT = Int.MIN_VALUE
+        }
+    }
+
+    /**
+     * The acting civ sets the action of its spy named [spyName] to [spyActionName] (a
+     * [com.unciv.models.SpyAction] constant name).
+     *
+     * Delegates to `Spy.setAction(action, turns)`. Only the player-selectable actions are accepted
+     * (e.g. starting/stopping a Coup); engine-internal lifecycle actions (Moving, Dead, …) are rejected.
+     */
+    @Serializable
+    @SerialName("setSpyAction")
+    data class SetSpyAction(
+        val spyName: String,
+        val spyActionName: String
+    ) : GameCommand
+
+    // endregion
 }

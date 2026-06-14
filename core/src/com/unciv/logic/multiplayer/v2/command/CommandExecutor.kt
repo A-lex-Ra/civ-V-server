@@ -7,13 +7,18 @@ import com.unciv.logic.battle.Battle
 import com.unciv.logic.battle.MapUnitCombatant
 import com.unciv.logic.battle.TargetHelper
 import com.unciv.logic.city.City
+import com.unciv.logic.city.CityFocus
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.diplomacy.Demand
 import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
 import com.unciv.logic.trade.TradeLogic
+import com.unciv.models.Spy
+import com.unciv.models.SpyAction
 import com.unciv.models.UnitActionType
+import com.unciv.models.ruleset.INonPerpetualConstruction
+import com.unciv.models.stats.Stat
 import com.unciv.models.ruleset.unique.UniqueTarget
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.network.command.GameCommand
@@ -77,6 +82,17 @@ class CommandExecutor {
             is GameCommand.CityStateProtection -> executeCityStateProtection(gameInfo, playerCivId, command)
             is GameCommand.RespondToTrade -> executeRespondToTrade(gameInfo, playerCivId, command)
             is GameCommand.AdoptPolicy -> executeAdoptPolicy(gameInfo, playerCivId, command)
+            is GameCommand.BuyConstruction -> executeBuyConstruction(gameInfo, playerCivId, command)
+            is GameCommand.RazeCity -> executeRazeCity(gameInfo, playerCivId, command)
+            is GameCommand.AnnexCity -> executeAnnexCity(gameInfo, playerCivId, command)
+            is GameCommand.BuyTile -> executeBuyTile(gameInfo, playerCivId, command)
+            is GameCommand.SetCityFocus -> executeSetCityFocus(gameInfo, playerCivId, command)
+            is GameCommand.ResetCitizens -> executeResetCitizens(gameInfo, playerCivId, command)
+            is GameCommand.ToggleAvoidGrowth -> executeToggleAvoidGrowth(gameInfo, playerCivId, command)
+            is GameCommand.ToggleLockedTile -> executeToggleLockedTile(gameInfo, playerCivId, command)
+            is GameCommand.SellBuilding -> executeSellBuilding(gameInfo, playerCivId, command)
+            is GameCommand.MoveSpy -> executeMoveSpy(gameInfo, playerCivId, command)
+            is GameCommand.SetSpyAction -> executeSetSpyAction(gameInfo, playerCivId, command)
             is GameCommand.EndTurn ->
                 // Inter-turn processing (GameInfo.nextTurn) is owned by the session/authority loop,
                 // not the executor (see docs/multiplayer-v2.md Phase 3).
@@ -594,6 +610,252 @@ class CommandExecutor {
 
     // endregion
 
+    // region city management
+
+    private fun executeBuyConstruction(gameInfo: GameInfo, playerCivId: String, command: GameCommand.BuyConstruction) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+
+        // Resolve the stat to pay with by enum constant name; the engine's own gate rejects
+        // Production/Happiness (which are not in statsUsableToBuy), so we don't special-case here.
+        val stat = Stat.safeValueOf(command.stat)
+            ?: throw CommandException("Unknown stat '${command.stat}'")
+
+        // Resolve the construction by name through the city's ruleset; only a non-perpetual
+        // construction (building or unit) can be purchased.
+        val construction = try {
+            city.cityConstructions.getConstruction(command.constructionName)
+        } catch (e: Exception) {
+            throw CommandException("'${command.constructionName}' is not a known building or unit in this ruleset")
+        }
+        if (construction !is INonPerpetualConstruction)
+            throw CommandException("'${command.constructionName}' cannot be purchased")
+
+        // The optional improvement tile is only meaningful for CreatesOneImprovement buildings (the
+        // CityScreen tile-picker passes it down); resolve it if supplied, else let the engine choose.
+        val improvementTileX = command.improvementTileX
+        val improvementTileY = command.improvementTileY
+        val improvementTile: Tile? =
+            if (improvementTileX != null && improvementTileY != null)
+                requireTile(gameInfo, improvementTileX, improvementTileY, "Improvement")
+            else null
+
+        // The one true buy test (puppet/resistance/purchasable/placement/stat/affordability) — the same
+        // gate the BuyButtonFactory uses to enable the button.
+        val buyCost = construction.getStatBuyCost(city, stat)
+            ?: throw CommandException("'${command.constructionName}' cannot be purchased with ${stat.name}")
+        if (!city.cityConstructions.isConstructionPurchaseAllowed(construction, stat, buyCost))
+            throw CommandException(
+                "'${command.constructionName}' cannot currently be purchased with ${stat.name} in city '${city.name}'"
+            )
+
+        // Delegate to the engine's own purchase path (queuePosition -1 = not from queue, like the UI's
+        // ad-hoc buy). Returns false when e.g. a unit can't be placed; surface that as a clean failure.
+        val bought = city.cityConstructions.purchaseConstruction(
+            construction, -1, automatic = false, stat = stat, tile = improvementTile
+        )
+        if (!bought)
+            throw CommandException("Could not place '${command.constructionName}' near city '${city.name}'")
+
+        // Re-apply worked-tiles optimization exactly as the BuyButtonFactory does after a purchase.
+        city.reassignPopulation()
+    }
+
+    private fun executeRazeCity(gameInfo: GameInfo, playerCivId: String, command: GameCommand.RazeCity) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+
+        if (command.raze) {
+            // Mirror the CityScreen raze button gate: city can be destroyed AND the civ may annex
+            // (a "may not annex" civ keeps puppets and cannot start razing from this screen).
+            if (actingCiv.hasUnique(UniqueType.MayNotAnnexCities))
+                throw CommandException("'$playerCivId' may not annex cities and cannot raze '${city.name}'")
+            if (!city.canBeDestroyed())
+                throw CommandException("City '${city.name}' cannot be razed")
+            city.isBeingRazed = true
+        } else {
+            if (!city.isBeingRazed)
+                throw CommandException("City '${city.name}' is not being razed")
+            city.isBeingRazed = false
+        }
+    }
+
+    private fun executeAnnexCity(gameInfo: GameInfo, playerCivId: String, command: GameCommand.AnnexCity) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+
+        // The CityScreen only shows the Annex button for a puppet of a civ that may annex.
+        if (!city.isPuppet)
+            throw CommandException("City '${city.name}' is not a puppet and cannot be annexed")
+        if (actingCiv.hasUnique(UniqueType.MayNotAnnexCities))
+            throw CommandException("'$playerCivId' may not annex cities")
+
+        // Delegate to the engine (resets focus/avoid-growth, schedules reassignment, updates stats).
+        city.annexCity()
+    }
+
+    private fun executeBuyTile(gameInfo: GameInfo, playerCivId: String, command: GameCommand.BuyTile) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+        val tile = requireTile(gameInfo, command.tileX, command.tileY, "Target")
+
+        // Same gate as askToBuyTile: the tile must be buyable for this city AND the civ must afford it.
+        if (!city.expansion.canBuyTile(tile))
+            throw CommandException(
+                "Tile (${command.tileX}, ${command.tileY}) cannot be bought by city '${city.name}'"
+            )
+        val goldCost = city.expansion.getGoldCostOfTile(tile)
+        if (!city.civ.hasStatToBuy(Stat.Gold, goldCost))
+            throw CommandException("'$playerCivId' cannot afford to buy the tile (cost $goldCost gold)")
+
+        // Delegate to the engine (deducts gold, takes ownership, defers reassignment).
+        city.expansion.buyTile(tile)
+    }
+
+    private fun executeSetCityFocus(gameInfo: GameInfo, playerCivId: String, command: GameCommand.SetCityFocus) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+
+        // The CitizenManagementTable is interactive only for non-puppet cities.
+        if (city.isPuppet)
+            throw CommandException("City '${city.name}' is a puppet and its focus cannot be set")
+
+        val focus = try {
+            CityFocus.valueOf(command.focusName)
+        } catch (e: IllegalArgumentException) {
+            throw CommandException("Unknown city focus '${command.focusName}'")
+        }
+
+        // Same path as the focus buttons: set the focus then re-optimize worked tiles.
+        city.setCityFocus(focus)
+        city.reassignPopulation()
+    }
+
+    private fun executeResetCitizens(gameInfo: GameInfo, playerCivId: String, command: GameCommand.ResetCitizens) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+
+        if (city.isPuppet)
+            throw CommandException("City '${city.name}' is a puppet and its citizens cannot be reset")
+
+        // Mirror the "Reset Citizens" button: reassign and unlock all tiles.
+        city.reassignPopulation(resetLocked = true)
+    }
+
+    private fun executeToggleAvoidGrowth(gameInfo: GameInfo, playerCivId: String, command: GameCommand.ToggleAvoidGrowth) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+
+        if (city.isPuppet)
+            throw CommandException("City '${city.name}' is a puppet and avoid-growth cannot be toggled")
+
+        // Mirror the "Avoid Growth" button: flip the flag then reassign population.
+        city.avoidGrowth = !city.avoidGrowth
+        city.reassignPopulation()
+    }
+
+    private fun executeToggleLockedTile(gameInfo: GameInfo, playerCivId: String, command: GameCommand.ToggleLockedTile) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+        val tile = requireTile(gameInfo, command.tileX, command.tileY, "Target")
+
+        if (city.isPuppet)
+            throw CommandException("City '${city.name}' is a puppet and its tiles cannot be locked")
+
+        // The Lock/Unlock buttons only appear for a tile currently worked by this city.
+        if (!city.isWorked(tile))
+            throw CommandException(
+                "Tile (${command.tileX}, ${command.tileY}) is not worked by city '${city.name}'"
+            )
+
+        // Mirror the buttons: lock toggles presence in the city's lockedTiles set.
+        if (city.lockedTiles.contains(tile.position)) city.lockedTiles.remove(tile.position)
+        else city.lockedTiles.add(tile.position)
+        city.cityStats.update()
+    }
+
+    private fun executeSellBuilding(gameInfo: GameInfo, playerCivId: String, command: GameCommand.SellBuilding) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val city = requireOwnedCity(gameInfo, actingCiv, command.cityX, command.cityY)
+
+        val building = city.getRuleset().buildings[command.buildingName]
+            ?: throw CommandException("'${command.buildingName}' is not a known building in this ruleset")
+
+        // The ConstructionInfoTable only enables Sell for a sellable building that is actually built,
+        // not free, in a non-puppet city, and at most once per turn (unless godMode).
+        if (!building.isSellable())
+            throw CommandException("'${command.buildingName}' cannot be sold")
+        if (!city.cityConstructions.isBuilt(building.name))
+            throw CommandException("'${command.buildingName}' is not built in city '${city.name}'")
+        if (city.isPuppet)
+            throw CommandException("City '${city.name}' is a puppet and buildings cannot be sold there")
+        if (actingCiv.civConstructions.hasFreeBuilding(city, building))
+            throw CommandException("'${command.buildingName}' is free in '${city.name}' and cannot be sold")
+        if (city.hasSoldBuildingThisTurn && !gameInfo.gameParameters.godMode)
+            throw CommandException("'${city.name}' has already sold a building this turn")
+
+        // Delegate to the engine (removes the building, refunds gold, sets the sold-this-turn flag).
+        city.sellBuilding(building)
+    }
+
+    // endregion
+
+    // region espionage
+
+    private fun executeMoveSpy(gameInfo: GameInfo, playerCivId: String, command: GameCommand.MoveSpy) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val spy = requireSpy(actingCiv, command.spyName)
+
+        // A sentinel position recalls the spy to the hideout (moveTo(null)).
+        if (command.targetCityX == GameCommand.MoveSpy.HIDEOUT && command.targetCityY == GameCommand.MoveSpy.HIDEOUT) {
+            spy.moveTo(null)
+            return
+        }
+
+        // Resolve the destination city by center tile (any civ's city is a valid spy destination).
+        val tile = requireTile(gameInfo, command.targetCityX, command.targetCityY, "Target")
+        val city = tile.getCity()
+        if (city == null || !tile.isCityCenter() || city.location != tile.position)
+            throw CommandException("Tile (${command.targetCityX}, ${command.targetCityY}) is not a city center")
+
+        // Same gate the espionage screen uses to offer a move target.
+        if (!spy.canMoveTo(city))
+            throw CommandException("Spy '${command.spyName}' cannot move to '${city.name}'")
+
+        spy.moveTo(city)
+    }
+
+    private fun executeSetSpyAction(gameInfo: GameInfo, playerCivId: String, command: GameCommand.SetSpyAction) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val spy = requireSpy(actingCiv, command.spyName)
+
+        val action = try {
+            SpyAction.valueOf(command.spyActionName)
+        } catch (e: IllegalArgumentException) {
+            throw CommandException("Unknown spy action '${command.spyActionName}'")
+        }
+
+        // Only the actions the player can actually choose in the espionage screen are accepted; the
+        // engine sets all other actions (Moving/EstablishNetwork/StealingTech/Dead/…) itself as part
+        // of the spy lifecycle. Delegate to Spy.setAction with the same turn counts the UI uses.
+        when (action) {
+            SpyAction.Coup -> {
+                // The Coup button is only shown when the spy can stage a coup (set up in a non-allied
+                // city-state).
+                if (!spy.canDoCoup())
+                    throw CommandException("Spy '${command.spyName}' cannot stage a coup right now")
+                spy.setAction(SpyAction.Coup, 1)
+            }
+            SpyAction.CounterIntelligence ->
+                // Cancelling a coup (or assigning counter-intelligence) uses 10 turns, matching the UI.
+                spy.setAction(SpyAction.CounterIntelligence, 10)
+            else ->
+                throw CommandException("Spy action '${command.spyActionName}' is not player-settable")
+        }
+    }
+
+    // endregion
+
     // region helpers
 
     /** A target civ named [name], distinct from [actingCiv], that exists in this game. */
@@ -635,6 +897,18 @@ class CommandExecutor {
      */
     private fun findMovableUnit(tile: Tile, civId: String): MapUnit? =
         tile.getUnits().firstOrNull { it.owner == civId }
+
+    /**
+     * The spy named [spyName] belonging to [actingCiv], by its stable `Spy.name`.
+     *
+     * Spies are keyed by name: each spy receives a unique name from its nation's pool at recruitment
+     * (`EspionageManager.getSpyName`), the name is stable across the game (only a *dead* spy is renamed
+     * on revival), and the espionage screen lists/selects spies the same way. There is no separate
+     * stable id, so the name is the canonical wire locator.
+     */
+    private fun requireSpy(actingCiv: Civilization, spyName: String): Spy =
+        actingCiv.espionageManager.spyList.firstOrNull { it.name == spyName }
+            ?: throw CommandException("No spy named '$spyName' for '${actingCiv.civID}'")
 
     // endregion
 }
