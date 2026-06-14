@@ -197,9 +197,26 @@ class GameSession(
         broadcastPlayerViews()
     }
 
-    /** The rostered players whose civ is human — the set whose `done` submissions gate resolution. */
+    /**
+     * The rostered players whose civ is human AND still in the game — the set whose `EndTurn` (or
+     * `done` submission) gates round resolution.
+     *
+     * **Defeated humans are excluded.** An eliminated player never sends another `EndTurn`, so counting
+     * them would deadlock the streaming barrier: every surviving client would sit on "Waiting for other
+     * players..." forever, because [onEndTurn] could never see *every* expected human as done. Excluding
+     * the defeated also keeps [resolveRound]'s `nextTurn` count equal to the number of live human turns
+     * the engine actually cycles through.
+     *
+     * NOTE (known limitation, deferred): a human who *disconnects* — rather than being eliminated —
+     * still counts here, because the session has no transport liveness signal yet. Robust mid-game
+     * disconnect handling (drop the peer from the barrier, or a per-round resolve timeout) is a separate
+     * follow-up (docs/multiplayer-v2.md §11).
+     */
     private fun expectedHumanPlayers(): Set<PlayerId> =
-        roster.filterValues { isHuman(it) }.keys
+        roster.keys.filterTo(mutableSetOf()) { playerId ->
+            val civ = gameInfo.getCivilizationOrNull(roster.getValue(playerId))
+            civ?.playerType == PlayerType.Human && !civ.isDefeated()
+        }
 
     private fun isHuman(civId: String): Boolean =
         gameInfo.getCivilizationOrNull(civId)?.playerType == PlayerType.Human
@@ -223,7 +240,10 @@ class GameSession(
     private fun onEndTurn(playerId: PlayerId) {
         endedThisPhase.add(playerId)
         val expected = expectedHumanPlayers()
-        if (endedThisPhase.containsAll(expected)) {
+        // Resolve once every still-active human has ended. The `isNotEmpty` guard means a stray EndTurn
+        // from a non-active player (e.g. one just eliminated) cannot trigger a spurious resolution when
+        // there is no live human left to gate on.
+        if (expected.isNotEmpty() && endedThisPhase.containsAll(expected)) {
             resolveRound(expected.size)
             endedThisPhase.clear()
         }

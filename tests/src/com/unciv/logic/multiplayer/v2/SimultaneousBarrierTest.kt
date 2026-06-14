@@ -50,6 +50,14 @@ class SimultaneousBarrierTest {
         civB = testGame.addCiv(majorNations[1], isPlayer = true)
         civA.playerType = PlayerType.Human
         civB.playerType = PlayerType.Human
+        // Keep both civs ALIVE: a civ with no cities and no units counts as isDefeated(), and the
+        // streaming barrier excludes defeated humans from the set it waits on (so an eliminated player
+        // cannot deadlock the round). A real game always starts each human with units, so mirror that
+        // here — otherwise these unit-less test humans would be treated as eliminated and never gate
+        // the barrier. Placed off the tiles the per-test units/moves use ([0,0], the far corner, and
+        // their neighbours).
+        testGame.addUnit("Warrior", civA, testGame.tileMap[2, 0])
+        testGame.addUnit("Warrior", civB, testGame.tileMap[-2, 0])
         // The engine's currentPlayer is just ONE of the active humans during the shared phase.
         testGame.gameInfo.currentPlayer = civA.civID
         testGame.gameInfo.currentPlayerCiv = civA
@@ -130,5 +138,33 @@ class SimultaneousBarrierTest {
         assertTrue("Resolved round must emit at least one view", views.isNotEmpty())
         assertTrue("Resolved views must carry the advanced turn number",
             views.all { it.turn == resolvedTurn })
+    }
+
+    @Test
+    fun aDefeatedHumanDoesNotDeadlockTheBarrier() {
+        // A human eliminated mid-game (no cities, no units) never sends another EndTurn. The barrier
+        // MUST NOT keep waiting on it — otherwise every surviving client is stuck "Waiting for other
+        // players..." forever. With A and B the only LIVE humans, both ending must resolve the round
+        // even though the rostered third human never ends.
+        val thirdNation = testGame.ruleset.nations.values.filter { it.isMajorCiv }[2]
+        val civC = testGame.addCiv(thirdNation, isPlayer = true)
+        civC.playerType = PlayerType.Human
+        assertTrue("Precondition: civC must read as defeated (no cities/units)", civC.isDefeated())
+
+        val playerC: PlayerId = "player-C"
+        val roster = mapOf(playerA to civA.civID, playerB to civB.civID, playerC to civC.civID)
+        val out = mutableListOf<Pair<PlayerId, GameFrame>>()
+        val barrierSession = GameSession(testGame.gameInfo, roster) { id, f -> out.add(id to f) }
+
+        val startTurns = testGame.gameInfo.turns
+        // Only the two live humans end; the eliminated human never will.
+        barrierSession.onFrame(playerCommand(seq = 1, playerId = playerA, command = GameCommand.EndTurn))
+        barrierSession.onFrame(playerCommand(seq = 1, playerId = playerB, command = GameCommand.EndTurn))
+
+        assertTrue("Round must resolve on the live humans alone, not block on the defeated human",
+            testGame.gameInfo.turns > startTurns)
+        val recipients = out.filter { it.second is GameFrame.PlayerView }.map { it.first }.toSet()
+        assertTrue("Both live humans must still receive their resolved-round views",
+            playerA in recipients && playerB in recipients)
     }
 }

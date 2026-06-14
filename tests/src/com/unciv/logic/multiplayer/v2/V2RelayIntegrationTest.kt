@@ -194,6 +194,15 @@ class V2RelayIntegrationTest {
             ))
             client.sendEndTurn(seq = 2)
 
+            // Streaming-barrier turn model: the host broadcasts each player's snapshot only once EVERY
+            // rostered human has ended. civA (the host) is the second human, so it must end too — inject
+            // its own EndTurn straight into the in-process session (the option-A loopback path) so the
+            // round resolves and the client's PlayerView is broadcast. Ordering is safe: resolution
+            // waits for the client's relayed EndTurn (which follows its MoveUnit on the same socket), so
+            // civB's move is applied before the snapshot regardless of when this host EndTurn lands.
+            host.submitLocal(hostUserId, GameFrame.PlayerCommand(
+                seq = 1, playerId = hostUserId, command = GameCommand.EndTurn))
+
             // --- Await PlayerViews until the client's filtered view satisfies the assertion. Each
             //     receive() establishes happens-before with the apply on the receive thread. ---
             var finalView: GameInfo? = null
