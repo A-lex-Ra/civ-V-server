@@ -57,10 +57,26 @@ class GameSession(
     private val simultaneousResolver = SimultaneousTurnResolver()
 
     /**
+     * Streaming-simultaneous turn barrier (the path the live UI uses): the set of human players who
+     * have sent their `EndTurn` intent for the **current** human phase. Commands stream in and apply
+     * immediately ([onPlayerCommand]); `EndTurn` does not advance the turn, it just records that this
+     * human is done. Once every rostered human is done the round resolves (see [onEndTurn]). Distinct
+     * from the buffered [simultaneousResolver] path (whole-turn [GameFrame.TurnSubmission]s), which is
+     * retained for the prediction/conflict tests.
+     */
+    private val endedThisPhase = mutableSetOf<PlayerId>()
+
+    /**
      * Handle an inbound [GameFrame] from a client. Phase 3 handles [GameFrame.PlayerCommand]
      * (single-command sequential play); Phase 5 adds [GameFrame.TurnSubmission] (simultaneous turns).
      * Other inbound frame kinds are ignored for now (they belong to later phases — acks, resync).
+     *
+     * `@Synchronized`: in option A the host process is also a local client of this authority, so
+     * frames now arrive from two threads — the transport receive thread (remote players) and the UI
+     * thread (the host's own [com.unciv.logic.multiplayer.v2.net.V2GameHost.submitLocal]). Serialising
+     * here keeps all canonical-state mutation single-threaded without the callers needing to know.
      */
+    @Synchronized
     fun onFrame(frame: GameFrame) {
         when (frame) {
             is GameFrame.PlayerCommand -> onPlayerCommand(frame)
@@ -83,7 +99,7 @@ class GameSession(
         // CommandExecutor about nextTurn. The executor stays the choke-point for *mutations*; turn
         // advancement and view projection live in the session. (Design decision — see report.)
         if (frame.command is GameCommand.EndTurn) {
-            runEndTurn()
+            onEndTurn(frame.playerId)
             return
         }
 
@@ -189,12 +205,42 @@ class GameSession(
         gameInfo.getCivilizationOrNull(civId)?.playerType == PlayerType.Human
 
     /**
-     * Run inter-turn processing on the authority and push each human player their own
-     * visibility-filtered [GameFrame.PlayerView]. (Sequential model: EndTurn from the active player
-     * advances the turn; the resulting state goes out as fresh per-player snapshots.)
+     * Streaming-simultaneous `EndTurn` (the live UI path). A human's commands have already streamed
+     * in and applied this phase; `EndTurn` only records that this human is **done**. The turn does
+     * not advance until *every* rostered human is done — that is what lets two humans act at the same
+     * time during the human phase while the AI runs separately (the user's design goal).
+     *
+     *  - **Everyone done →** [resolveRound]: advance a full round (each human's inter-turn processing
+     *    plus all AI), reset the phase, and push everyone a fresh human-phase snapshot.
+     *  - **Some still acting →** nothing is pushed. The player who just ended already disabled its own
+     *    input locally before sending the intent, and the players still acting must not have their
+     *    screens disrupted mid-turn by another player ending. The single round-resolution broadcast is
+     *    the only view churn per round.
+     *
+     * With a single human this degrades exactly to the old sequential behaviour: one `EndTurn` →
+     * one `nextTurn()` → broadcast.
      */
-    private fun runEndTurn() {
-        gameInfo.nextTurn()
+    private fun onEndTurn(playerId: PlayerId) {
+        endedThisPhase.add(playerId)
+        val expected = expectedHumanPlayers()
+        if (endedThisPhase.containsAll(expected)) {
+            resolveRound(expected.size)
+            endedThisPhase.clear()
+        }
+    }
+
+    /**
+     * Advance one full simultaneous round. The engine's [GameInfo.nextTurn] ends the *current* human,
+     * auto-processes every AI civ after it, and stops at the *next* human — so cycling through all
+     * [humanCount] humans (and the AI between them) and back to a fresh human phase is exactly one
+     * `nextTurn()` per human. Then push each human their fresh post-round snapshot.
+     *
+     * (First-cut: assumes the human count is stable across the round. A human eliminated mid-game no
+     * longer submits `EndTurn`, so robust handling of that — not gating the barrier on dead humans —
+     * is a documented follow-up, deferred per docs/multiplayer-v2.md §11.)
+     */
+    private fun resolveRound(humanCount: Int) {
+        repeat(humanCount.coerceAtLeast(1)) { gameInfo.nextTurn() }
         broadcastPlayerViews()
     }
 

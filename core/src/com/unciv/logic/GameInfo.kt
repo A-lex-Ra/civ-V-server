@@ -207,12 +207,13 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
     }
 
     fun getPlayerToViewAs(): Civilization {
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): a v2 client holds its own visibility-filtered view,
-        // whose `currentPlayer` is set by the authority and may not be this client's civ — so, like
-        // online MP, resolve the viewing civ by the local userId rather than by currentPlayer. A v2
-        // host runs the canonical game locally and views as the current player like single-player.
-        val isV2Client = gameParameters.isMultiplayerV2 &&
-            UncivGame.Current.v2GameManager?.isHost == false
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): EVERY v2 process — joiner AND host —
+        // renders its own visibility-filtered view, whose `currentPlayer` is set by the authority and
+        // may not be this process's civ (during the simultaneous human phase the engine's
+        // currentPlayer is just one of the active humans). So, like online MP, resolve the viewing civ
+        // by the local userId rather than by currentPlayer. The host's authoritative canonical state
+        // is never rendered through a WorldScreen, so this never mis-resolves there.
+        val isV2Client = gameParameters.isMultiplayerV2
         if (!gameParameters.isOnlineMultiplayer && !isV2Client) return getCurrentPlayerCivilization() // non-online, play as human player
         val userId = UncivGame.Current.settings.multiplayer.getUserId()
 

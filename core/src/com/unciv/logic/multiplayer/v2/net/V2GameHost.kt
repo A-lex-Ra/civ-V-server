@@ -53,16 +53,30 @@ class V2GameHost(
     private val transport: RelayTransport,
     gameInfo: GameInfo,
     /** `UserId -> civId` roster. Since `PlayerId == UserId` this is the [GameSession] roster as-is. */
-    roster: Map<UserId, String>
+    roster: Map<UserId, String>,
+    /**
+     * Optional outbound override (option A — "host is a client of its own in-process authority").
+     * When the host process *also* runs a local client for its own civ, the session must deliver
+     * that player's frames in-process (into a local view holder) instead of over the relay, while
+     * every other player's frames still go over the relay. The owner ([V2GameManager]) supplies a
+     * split sink here that routes by `playerId`. When `null`, the default relay-only sink is used —
+     * the dedicated-server / pure-relay path, unchanged.
+     */
+    outbound: ((PlayerId, GameFrame) -> Unit)? = null
 ) {
     /**
      * The authoritative session. Its outbound sink directs each per-player frame to that player's
      * connection: `RelayTo(targetUserId = playerId, payload = frame)`. PlayerId == UserId, so the
-     * `playerId` the session emits *is* the relay target.
+     * `playerId` the session emits *is* the relay target. A caller-supplied [outbound] (the
+     * host-as-client split sink) takes precedence over this default.
      */
-    val session: GameSession = GameSession(gameInfo, roster) { playerId: PlayerId, frame: GameFrame ->
-        transport.send(ClientToRelay.RelayTo(targetUserId = playerId, payload = frame))
-    }
+    val session: GameSession = GameSession(
+        gameInfo,
+        roster,
+        outbound ?: { playerId: PlayerId, frame: GameFrame ->
+            transport.send(ClientToRelay.RelayTo(targetUserId = playerId, payload = frame))
+        }
+    )
 
     /**
      * Install the inbound handler on the transport. Call once, before remote players start sending
@@ -76,6 +90,18 @@ class V2GameHost(
         if (message !is RelayToClient.Relayed) return // membership/presence/errors: nothing to apply
         val bound = bindIdentity(message.fromId, message.payload)
         session.onFrame(bound)
+    }
+
+    /**
+     * Inject a frame issued by the **local** player (option A — the host process is also a client of
+     * its own in-process authority). The frame is bound to [userId] exactly as a relayed frame is
+     * bound to its connection id ([bindIdentity]), then handed to the session — so a local command
+     * travels the identical validate/apply path as a remote one. [GameSession.onFrame] is
+     * `@Synchronized`, so local injections from the UI thread and relayed frames from the transport
+     * receive thread cannot interleave on the canonical state.
+     */
+    fun submitLocal(userId: UserId, frame: GameFrame) {
+        session.onFrame(bindIdentity(userId, frame))
     }
 
     /**

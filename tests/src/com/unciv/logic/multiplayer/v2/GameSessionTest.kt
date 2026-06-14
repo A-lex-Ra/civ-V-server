@@ -149,7 +149,10 @@ class GameSessionTest {
         testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
         assertTrue("Far tile must be fogged for A in this setup", !far.isVisible(civA))
 
+        // Streaming-barrier turn model: the round (and its per-player snapshot broadcast) resolves
+        // only once EVERY human has ended, so both A and B must end before views are pushed.
         session.onFrame(playerCommand(seq = 7, playerId = playerA, command = GameCommand.EndTurn))
+        session.onFrame(playerCommand(seq = 8, playerId = playerB, command = GameCommand.EndTurn))
 
         // Every human player must have received a PlayerView.
         val views = emitted.filter { it.second is GameFrame.PlayerView }
@@ -195,7 +198,9 @@ class GameSessionTest {
         assertTrue("Precondition: B's city should have buildings (e.g. Palace) canonically",
             civB.cities.first().cityConstructions.builtBuildings.isNotEmpty())
 
+        // Both humans must end for the streaming-barrier round to resolve and broadcast snapshots.
         session.onFrame(playerCommand(seq = 9, playerId = playerA, command = GameCommand.EndTurn))
+        session.onFrame(playerCommand(seq = 10, playerId = playerB, command = GameCommand.EndTurn))
 
         val (_, aFrame) = emitted.filter { it.second is GameFrame.PlayerView }.single { it.first == playerA }
         // Round-trip WITH a (redacted) city present — must not throw on client setTransients.

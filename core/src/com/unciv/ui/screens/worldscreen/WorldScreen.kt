@@ -208,20 +208,25 @@ class WorldScreen(
             }
         }
 
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): a v2 CLIENT renders the host's per-player filtered
-        // view. When the host pushes a fresh PlayerView (e.g. after the turn advances), the manager
-        // has already decoded it into a new filtered GameInfo; swap that in through the same
-        // screen-reload path nextTurn uses (UncivGame.loadGame), so the client sees its live view
-        // update as the host plays. The v2 HOST runs the canonical game locally and needs no hook.
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): every v2 process — joiner AND host — is a
+        // client of the one authoritative GameSession. It renders its own per-player filtered view;
+        // when the authority pushes a fresh PlayerView (turn advanced, or another player ended), the
+        // manager has already decoded it into a new filtered GameInfo, so we swap that in through the
+        // same screen-reload path nextTurn uses (UncivGame.loadGame). The host's authority loop runs
+        // separately on the canonical state; this WorldScreen never touches it directly.
         run {
             val v2 = UncivGame.Current.v2GameManager
-            if (v2 != null && !v2.isHost) {
-                isPlayersTurn = false // a fresh client waits for its first PlayerView before acting
+            if (v2 != null) {
+                // Simultaneous human phase: this player may act unless they have already ended their
+                // turn and are waiting for the round to resolve (the latch clears when a later-turn
+                // view arrives). Not gated on viewingCiv.isCurrentPlayer() — both humans are active.
+                isPlayersTurn = !v2.localEndedTurn
                 v2.onView = onView@{
-                    // Fires on the transport receive thread; clientView already holds the decoded GameInfo.
+                    // Fires on the transport receive thread (joiner) or in-process (host loopback);
+                    // clientView already holds the decoded GameInfo.
                     val newGameInfo = v2.currentClientView() ?: return@onView
                     if (game.gameInfo === gameInfo) // ignore if we've since navigated away from this game
-                        Concurrency.run("V2 client view refresh") {
+                        Concurrency.run("V2 view refresh") {
                             UncivGame.Current.loadGame(newGameInfo)
                         }
                 }
@@ -600,16 +605,20 @@ class WorldScreen(
     }
 
     fun nextTurn() {
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): a v2 CLIENT (not the host/authority) does not run
-        // inter-turn processing locally and does not upload — it sends an EndTurn *intent* to the
-        // authority, which advances the turn and pushes back fresh per-player filtered PlayerViews
-        // (those swap in a new GameInfo and re-render, see the v2 onView hook wired in init). The v2
-        // HOST is the authority, so it falls through to the normal local nextTurn path below.
+        // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): every v2 process — joiner AND host — sends
+        // an EndTurn *intent* to the authoritative GameSession rather than running inter-turn
+        // processing locally. In the simultaneous model this marks the player done; the authority
+        // advances the round only once every human has ended, then pushes fresh per-player filtered
+        // PlayerViews (swapped in by the onView hook wired in init). The host's own intent is injected
+        // straight into its in-process session (no socket round-trip) — see V2GameManager.sendEndTurn.
         val v2 = UncivGame.Current.v2GameManager
-        if (v2 != null && !v2.isHost) {
+        if (v2 != null) {
             isPlayersTurn = false
             shouldUpdate = true
-            v2.sendEndTurn()
+            // Off the GL thread: for the HOST this intent drives the in-process authority's round
+            // resolution (nextTurn → AI processing), which must not block the UI; for a JOINER it is
+            // just a non-blocking relay send. The fresh filtered view comes back via the onView hook.
+            Concurrency.run("V2 end turn") { v2.sendEndTurn() }
             return
         }
 

@@ -75,15 +75,41 @@ class V2GameManager {
     private val seq = AtomicLong(0)
 
     /**
-     * Fired (on the transport receive thread) after each inbound [GameFrame.PlayerView] has been
-     * applied to the client view holder. The WorldScreen subscribes here to swap in the freshly
-     * decoded filtered [GameInfo]. Set by the UI; client mode only.
+     * The local player's user id (== its civ's playerId). Set by [hostGame]/[joinGame]. In host mode
+     * it identifies the host's own frames so the session's split outbound sink delivers them
+     * in-process (option A) instead of over the relay; in both modes it stamps outbound commands.
+     */
+    private var localUserId: UserId? = null
+
+    /**
+     * Fired after each inbound [GameFrame.PlayerView] has been applied to the view holder. The
+     * WorldScreen subscribes here to swap in the freshly decoded filtered [GameInfo]. Set by the UI.
+     * Fires in **both** modes now: in client mode on the transport receive thread, in host mode
+     * in-process when the session pushes the host its own filtered view (option A loopback).
      */
     var onView: ((GameFrame.PlayerView) -> Unit)? = null
 
-    /** The client's view holder (client mode only); exposes the latest decoded filtered GameInfo. */
+    /**
+     * The view holder for the **local** player — set in BOTH modes now (option A): a joiner's
+     * network view, or the host's own in-process loopback view. Exposes the latest decoded filtered
+     * [GameInfo] the local WorldScreen renders.
+     */
     var clientView: ClientGameView? = null
         private set
+
+    /**
+     * True once the local player has sent `EndTurn` for the current human phase and is waiting for
+     * the round to resolve — the WorldScreen reads this to keep input disabled until the next round.
+     * Cleared automatically when a [GameFrame.PlayerView] for a later turn arrives (the round
+     * advanced). `@Volatile`: written/read across the UI and transport-receive threads.
+     */
+    @Volatile
+    var localEndedTurn: Boolean = false
+        private set
+
+    /** The turn number at which the local player last ended; a view past it means the round resolved. */
+    @Volatile
+    private var localEndedAtTurn: Int = -1
 
     /**
      * HOST a v2 game over the relay. Connects, creates the room, wraps [gameInfo] in a [V2GameHost]
@@ -101,6 +127,7 @@ class V2GameManager {
         hostUserId: UserId,
         roster: Map<UserId, String>
     ): RoomId {
+        localUserId = hostUserId
         val t = WebSocketRelayTransport(relayUrl(serverUrl), userId = hostUserId)
         transport = t
 
@@ -121,11 +148,49 @@ class V2GameManager {
         }
         roomId = welcome.roomId
 
-        val h = V2GameHost(t, gameInfo, roster)
+        // Option A — the host is also a client of its own authority. Its WorldScreen renders this
+        // local view holder (NOT the canonical GameInfo), so it never hotseat-controls another civ.
+        clientView = ClientGameView()
+
+        // Split outbound sink: the host's OWN frames are delivered in-process (no socket round-trip);
+        // every other player's frames go over the relay, directed, exactly as before.
+        val h = V2GameHost(t, gameInfo, roster) { playerId, frame ->
+            if (playerId == hostUserId) deliverLocal(frame)
+            else t.send(ClientToRelay.RelayTo(targetUserId = playerId, payload = frame))
+        }
         h.start() // installs the host's onMessage handler, replacing the tap above
         host = h
         Log.debug("V2GameManager: hosting v2 game in room %s as %s", welcome.roomId, hostUserId)
         return welcome.roomId
+    }
+
+    /**
+     * Deliver a frame the session addressed to the **host's own** player id, in-process (option A
+     * loopback). A [GameFrame.PlayerView] is decoded into [clientView] and surfaced through the same
+     * [onView] path a network client uses, so the host's WorldScreen refreshes identically; a
+     * [GameFrame.CommandRejected] for the host's own command is logged (the predictive/undo handling
+     * a remote client gets is deferred — the next authoritative view reconciles).
+     */
+    private fun deliverLocal(frame: GameFrame) {
+        when (frame) {
+            is GameFrame.PlayerView -> {
+                clientView?.onPlayerView(frame)
+                onIncomingView(frame)
+            }
+            is GameFrame.CommandRejected ->
+                Log.debug("V2GameManager: host's own command rejected (seq %s): %s", frame.seq, frame.reason)
+            else -> Unit
+        }
+    }
+
+    /**
+     * Common handling for an inbound filtered view in either mode: clear the local "ended my turn"
+     * latch once a view for a later turn arrives (the round resolved → this player may act again),
+     * then forward to the UI's [onView] subscriber.
+     */
+    private fun onIncomingView(frame: GameFrame.PlayerView) {
+        if (frame.turn > localEndedAtTurn) localEndedTurn = false
+        onView?.invoke(frame)
     }
 
     /**
@@ -143,6 +208,7 @@ class V2GameManager {
         serverUrl: String,
         myUserId: UserId
     ): V2GameClient {
+        localUserId = myUserId
         val t = WebSocketRelayTransport(relayUrl(serverUrl), userId = myUserId)
         transport = t
 
@@ -152,7 +218,7 @@ class V2GameManager {
         val c = V2GameClient(t, myUserId = myUserId, view = view)
         // Surface inbound views to the UI hook. onView fires AFTER the view holder has applied the
         // snapshot, so a subscriber that reads clientView.currentView sees the decoded GameInfo.
-        c.onView = { frame -> onView?.invoke(frame) }
+        c.onView = { frame -> onIncomingView(frame) }
         c.start() // installs handler before we join, so the Welcome (host id) is not missed
         t.send(ClientToRelay.JoinRoom(roomId))
         this.roomId = roomId
@@ -162,21 +228,37 @@ class V2GameManager {
     }
 
     /**
-     * Route the local player's [GameCommand] to the authority. **Client mode only** — a host IS the
-     * authority and mutates its canonical GameInfo locally (no command round-trip). No-op (with a
-     * warning) if called before a client is connected.
+     * Route the local player's [GameCommand] to the authority. Uniform across modes (option A): a
+     * joiner sends it over the relay; the host injects it straight into its in-process session via
+     * [V2GameHost.submitLocal] (same validate/apply path, no socket round-trip). No-op (with a log)
+     * if neither side is connected yet.
      */
     fun sendCommand(command: GameCommand) {
-        val c = client
-        if (c == null) {
-            Log.debug("V2GameManager.sendCommand called with no client (host mode or not connected)")
+        val nextSeq = seq.incrementAndGet()
+        val h = host
+        if (h != null) {
+            val uid = localUserId ?: return
+            h.submitLocal(uid, GameFrame.PlayerCommand(seq = nextSeq, playerId = uid, command = command))
             return
         }
-        c.sendCommand(seq.incrementAndGet(), command)
+        val c = client
+        if (c == null) {
+            Log.debug("V2GameManager.sendCommand called with no host/client (not connected)")
+            return
+        }
+        c.sendCommand(nextSeq, command)
     }
 
-    /** Convenience: send the local player's EndTurn intent to the host (client mode only). */
-    fun sendEndTurn() = sendCommand(GameCommand.EndTurn)
+    /**
+     * Send the local player's EndTurn intent (uniform across modes). Latches [localEndedTurn] so the
+     * WorldScreen disables input until the round resolves — in the simultaneous model `EndTurn` marks
+     * this human done; the turn only advances once every human has ended (see [GameSession]).
+     */
+    fun sendEndTurn() {
+        localEndedTurn = true
+        localEndedAtTurn = clientView?.turn ?: -1
+        sendCommand(GameCommand.EndTurn)
+    }
 
     /** The latest filtered [GameInfo] the client holds, or null (client mode, before first view). */
     fun currentClientView(): GameInfo? = clientView?.currentView
@@ -191,12 +273,25 @@ class V2GameManager {
      * typically follow this with [awaitFirstView].
      */
     fun requestInitialView() {
-        val c = client
-        if (c == null) {
-            Log.debug("V2GameManager.requestInitialView called with no client (host mode or not connected)")
+        val h = host
+        if (h != null) {
+            // Host mode (option A): inject a resync for the host's own civ straight into the session.
+            // The split sink delivers the resulting snapshot in-process into clientView synchronously,
+            // so awaitFirstView() returns immediately.
+            val uid = localUserId ?: return
+            runCatching { h.submitLocal(uid, GameFrame.ResyncRequest(playerId = uid)) }
             return
         }
-        c.sendResyncRequest()
+        val c = client
+        if (c == null) {
+            Log.debug("V2GameManager.requestInitialView called with no host/client (not connected)")
+            return
+        }
+        // Best-effort early kick. The relay Welcome (which latches the host's UserId on the client)
+        // is processed asynchronously on the transport receive thread, so right after joinGame()
+        // returns the host id is usually not known yet and sendResyncRequest() would throw. Swallow
+        // that here: awaitFirstView() re-sends the resync on its poll loop once the host id latches.
+        runCatching { c.sendResyncRequest() }
     }
 
     /**
@@ -214,8 +309,9 @@ class V2GameManager {
                 delay(VIEW_POLL_INTERVAL)
                 // Re-request: the host id is latched off the relay Welcome on the receive thread, so
                 // the first requestInitialView() may have run before the host was known and silently
-                // thrown inside the client. A cheap periodic retry covers that startup race.
-                runCatching { client?.sendResyncRequest() }
+                // thrown inside the client. A cheap periodic retry covers that startup race. (Host
+                // mode resolves on the first call, so this is a no-op retry there.)
+                requestInitialView()
                 view = currentClientView()
             }
             view
@@ -228,6 +324,9 @@ class V2GameManager {
         host = null
         client = null
         clientView = null
+        localUserId = null
+        localEndedTurn = false
+        localEndedAtTurn = -1
     }
 
     companion object {
