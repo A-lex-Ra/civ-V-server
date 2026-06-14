@@ -126,4 +126,148 @@ sealed interface GameCommand {
         val targetX: Int,
         val targetY: Int
     ) : GameCommand
+
+    // region Diplomacy
+
+    /**
+     * The acting civ declares war on [targetCivName].
+     *
+     * Mirrors the DiplomacyScreen "Declare war" button; the authority validates the engine's own
+     * `canDeclareWar()` gate before delegating to `DiplomacyManager.declareWar()`.
+     */
+    @Serializable
+    @SerialName("declareWar")
+    data class DeclareWar(
+        val targetCivName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ makes peace with [targetCivName] (must currently be at war).
+     *
+     * Mirrors the DiplomacyScreen "Negotiate Peace" path, delegating to `DiplomacyManager.makePeace()`.
+     */
+    @Serializable
+    @SerialName("makePeace")
+    data class MakePeace(
+        val targetCivName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ signs a Declaration of Friendship with [targetCivName].
+     *
+     * In single-player this is the *acceptance* step of a friendship offer (AlertPopup);
+     * the authority validates `canSignDeclarationOfFriendshipWith()` and delegates to
+     * `DiplomacyManager.signDeclarationOfFriendship()`.
+     */
+    @Serializable
+    @SerialName("declareFriendship")
+    data class DeclareFriendship(
+        val targetCivName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ signs a Defensive Pact with [targetCivName].
+     *
+     * The pact duration is derived on the authority from the game speed (deal duration), matching the
+     * way the trade system builds a defensive-pact offer. Validated with
+     * `canSignDefensivePactWith()`, then `DiplomacyManager.signDefensivePact(duration)`.
+     */
+    @Serializable
+    @SerialName("defensivePact")
+    data class DefensivePact(
+        val targetCivName: String
+    ) : GameCommand
+
+    /** The acting civ denounces [targetCivName]. Delegates to `DiplomacyManager.denounce()`. */
+    @Serializable
+    @SerialName("denounce")
+    data class Denounce(
+        val targetCivName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ gifts [gold] gold to the city-state [targetCivName].
+     *
+     * Mirrors the DiplomacyScreen city-state "Give a Gift" button; the authority delegates to
+     * `CityStateFunctions.receiveGoldGift`, which moves the gold and grants influence.
+     */
+    @Serializable
+    @SerialName("giftGold")
+    data class GiftGold(
+        val targetCivName: String,
+        val gold: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ responds to a pending demand from [targetCivName].
+     *
+     * [demandName] is the name of a [com.unciv.logic.civilization.diplomacy.Demand] enum constant
+     * (the demand the *other* civ raised, recorded as a `PopupAlert` on the acting civ). [agree]
+     * picks `agreeToDemand`/`refuseDemand`.
+     */
+    @Serializable
+    @SerialName("demandResponse")
+    data class DemandResponse(
+        val targetCivName: String,
+        val demandName: String,
+        val agree: Boolean
+    ) : GameCommand
+
+    /**
+     * The acting (major) civ pledges or withdraws protection over the city-state [cityStateCivName].
+     *
+     * [pledge] true → `CityStateFunctions.addProtectorCiv`; false → `removeProtectorCiv`.
+     */
+    @Serializable
+    @SerialName("cityStateProtection")
+    data class CityStateProtection(
+        val cityStateCivName: String,
+        val pledge: Boolean
+    ) : GameCommand
+
+    // endregion
+
+    // region Trade
+
+    /**
+     * The acting civ accepts ([accept] = true) or declines a pending trade request from
+     * [fromCivName].
+     *
+     * The trade payload is NOT carried on the wire: the authority matches the pending entry in the
+     * acting civ's `tradeRequests` by requesting-civ, then runs the engine's own accept/decline path
+     * (`TradeLogic.acceptTrade` / `TradeRequest.decline`). See `ProposeTrade` (deferred) for why the
+     * full bilateral trade is not embedded.
+     */
+    @Serializable
+    @SerialName("respondToTrade")
+    data class RespondToTrade(
+        val fromCivName: String,
+        val accept: Boolean
+    ) : GameCommand
+
+    // NOTE: ProposeTrade is intentionally DEFERRED. A proposal carries a full bilateral `Trade`
+    // (`Trade`/`TradeOffer`/`TradeRequest` in core/.../logic/trade/), but those types use the game's
+    // libgdx-JSON serialization (`IsPartOfGameInfoSerialization`) and are NOT `@Serializable`
+    // (kotlinx) — which is the wire format for `GameCommand`. Embedding them would require a parallel
+    // kotlinx DTO + conversion that risks drift from the canonical model, so it is left out here.
+    // RespondToTrade (above) still lets a player accept/decline incoming requests.
+
+    // endregion
+
+    // region Policy
+
+    /**
+     * The acting civ adopts the policy (or policy branch) named [policyName].
+     *
+     * A branch is just the branch's own name (both individual policies and branches live in
+     * `ruleset.policies`), so one command keyed by name handles both. Validated with the engine's
+     * `isAdoptable` + `canAdoptPolicy` gate, then `PolicyManager.adopt(policy)`.
+     */
+    @Serializable
+    @SerialName("adoptPolicy")
+    data class AdoptPolicy(
+        val policyName: String
+    ) : GameCommand
+
+    // endregion
 }

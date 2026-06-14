@@ -8,8 +8,11 @@ import com.unciv.logic.battle.MapUnitCombatant
 import com.unciv.logic.battle.TargetHelper
 import com.unciv.logic.city.City
 import com.unciv.logic.civilization.Civilization
+import com.unciv.logic.civilization.diplomacy.Demand
+import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
+import com.unciv.logic.trade.TradeLogic
 import com.unciv.models.UnitActionType
 import com.unciv.models.ruleset.unique.UniqueTarget
 import com.unciv.models.ruleset.unique.UniqueType
@@ -64,6 +67,16 @@ class CommandExecutor {
             is GameCommand.PromoteUnit -> executePromoteUnit(gameInfo, playerCivId, command)
             is GameCommand.GenericUnitAction -> executeGenericUnitAction(gameInfo, playerCivId, command)
             is GameCommand.AttackUnit -> executeAttackUnit(gameInfo, playerCivId, command)
+            is GameCommand.DeclareWar -> executeDeclareWar(gameInfo, playerCivId, command)
+            is GameCommand.MakePeace -> executeMakePeace(gameInfo, playerCivId, command)
+            is GameCommand.DeclareFriendship -> executeDeclareFriendship(gameInfo, playerCivId, command)
+            is GameCommand.DefensivePact -> executeDefensivePact(gameInfo, playerCivId, command)
+            is GameCommand.Denounce -> executeDenounce(gameInfo, playerCivId, command)
+            is GameCommand.GiftGold -> executeGiftGold(gameInfo, playerCivId, command)
+            is GameCommand.DemandResponse -> executeDemandResponse(gameInfo, playerCivId, command)
+            is GameCommand.CityStateProtection -> executeCityStateProtection(gameInfo, playerCivId, command)
+            is GameCommand.RespondToTrade -> executeRespondToTrade(gameInfo, playerCivId, command)
+            is GameCommand.AdoptPolicy -> executeAdoptPolicy(gameInfo, playerCivId, command)
             is GameCommand.EndTurn ->
                 // Inter-turn processing (GameInfo.nextTurn) is owned by the session/authority loop,
                 // not the executor (see docs/multiplayer-v2.md Phase 3).
@@ -366,7 +379,232 @@ class CommandExecutor {
         Battle.moveAndAttack(MapUnitCombatant(attacker), attackableTile)
     }
 
+    // region diplomacy
+
+    private fun executeDeclareWar(gameInfo: GameInfo, playerCivId: String, command: GameCommand.DeclareWar) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val targetCiv = requireOtherCiv(gameInfo, actingCiv, command.targetCivName)
+
+        val diplomacyManager = actingCiv.getDiplomacyManager(targetCiv)
+            ?: throw CommandException("'$playerCivId' has not met '${command.targetCivName}'")
+
+        // The same gate the DiplomacyScreen war button uses (not defeated, no active peace treaty,
+        // not already at war).
+        if (!diplomacyManager.canDeclareWar())
+            throw CommandException("'$playerCivId' cannot declare war on '${command.targetCivName}' right now")
+
+        // Delegate to the engine's own declaration path (runs all side effects: defensive pacts,
+        // betrayal modifiers, notifications, …).
+        diplomacyManager.declareWar()
+    }
+
+    private fun executeMakePeace(gameInfo: GameInfo, playerCivId: String, command: GameCommand.MakePeace) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val targetCiv = requireOtherCiv(gameInfo, actingCiv, command.targetCivName)
+
+        val diplomacyManager = actingCiv.getDiplomacyManager(targetCiv)
+            ?: throw CommandException("'$playerCivId' has not met '${command.targetCivName}'")
+
+        // Peace is only meaningful when currently at war (mirrors the UI only offering it then).
+        if (!actingCiv.isAtWarWith(targetCiv))
+            throw CommandException("'$playerCivId' is not at war with '${command.targetCivName}'")
+
+        diplomacyManager.makePeace()
+    }
+
+    private fun executeDeclareFriendship(gameInfo: GameInfo, playerCivId: String, command: GameCommand.DeclareFriendship) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val targetCiv = requireOtherCiv(gameInfo, actingCiv, command.targetCivName)
+
+        actingCiv.getDiplomacyManager(targetCiv)
+            ?: throw CommandException("'$playerCivId' has not met '${command.targetCivName}'")
+
+        // Same gate the engine uses (major civ, not at war, no active denouncement/friendship).
+        if (!actingCiv.diplomacyFunctions.canSignDeclarationOfFriendshipWith(targetCiv))
+            throw CommandException(
+                "'$playerCivId' cannot sign a Declaration of Friendship with '${command.targetCivName}' right now"
+            )
+
+        actingCiv.getDiplomacyManager(targetCiv)!!.signDeclarationOfFriendship()
+    }
+
+    private fun executeDefensivePact(gameInfo: GameInfo, playerCivId: String, command: GameCommand.DefensivePact) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val targetCiv = requireOtherCiv(gameInfo, actingCiv, command.targetCivName)
+
+        val diplomacyManager = actingCiv.getDiplomacyManager(targetCiv)
+            ?: throw CommandException("'$playerCivId' has not met '${command.targetCivName}'")
+
+        // Same gate the trade system uses to offer a defensive pact (requires the enabling unique,
+        // an active friendship, no existing pact, …).
+        if (!actingCiv.diplomacyFunctions.canSignDefensivePactWith(targetCiv))
+            throw CommandException(
+                "'$playerCivId' cannot sign a Defensive Pact with '${command.targetCivName}' right now"
+            )
+
+        // Pact duration comes from the game speed's deal duration, matching the way TradeOffer builds
+        // a (non-immediate, non-peace) treaty offer.
+        diplomacyManager.signDefensivePact(gameInfo.speed.dealDuration)
+    }
+
+    private fun executeDenounce(gameInfo: GameInfo, playerCivId: String, command: GameCommand.Denounce) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val targetCiv = requireOtherCiv(gameInfo, actingCiv, command.targetCivName)
+
+        val diplomacyManager = actingCiv.getDiplomacyManager(targetCiv)
+            ?: throw CommandException("'$playerCivId' has not met '${command.targetCivName}'")
+
+        // The UI only offers Denounce between non-warring civs that aren't already denounced/friends.
+        if (actingCiv.isAtWarWith(targetCiv))
+            throw CommandException("'$playerCivId' is at war with '${command.targetCivName}' and cannot denounce them")
+        if (diplomacyManager.hasFlag(DiplomacyFlags.Denunciation))
+            throw CommandException("'$playerCivId' has already denounced '${command.targetCivName}'")
+        if (diplomacyManager.hasFlag(DiplomacyFlags.DeclarationOfFriendship))
+            throw CommandException("'$playerCivId' cannot denounce a Declaration-of-Friendship partner")
+
+        diplomacyManager.denounce()
+    }
+
+    private fun executeGiftGold(gameInfo: GameInfo, playerCivId: String, command: GameCommand.GiftGold) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val targetCiv = requireOtherCiv(gameInfo, actingCiv, command.targetCivName)
+
+        // The player "Give a Gift" action targets a city-state and runs through
+        // CityStateFunctions.receiveGoldGift (moves the gold + grants influence). (DiplomacyManager
+        // .giftGold is a trade-internal modifier-only helper and is NOT the player gift path.)
+        if (!targetCiv.isCityState)
+            throw CommandException("'${command.targetCivName}' is not a city-state; gold can only be gifted to city-states")
+        if (actingCiv.getDiplomacyManager(targetCiv) == null)
+            throw CommandException("'$playerCivId' has not met '${command.targetCivName}'")
+        if (command.gold <= 0)
+            throw CommandException("Gift amount must be positive")
+        if (actingCiv.isAtWarWith(targetCiv))
+            throw CommandException("'$playerCivId' is at war with '${command.targetCivName}' and cannot gift gold")
+        if (actingCiv.gold < command.gold)
+            throw CommandException("'$playerCivId' cannot afford to gift ${command.gold} gold")
+
+        targetCiv.cityStateFunctions.receiveGoldGift(actingCiv, command.gold)
+    }
+
+    private fun executeDemandResponse(gameInfo: GameInfo, playerCivId: String, command: GameCommand.DemandResponse) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val demandingCiv = requireOtherCiv(gameInfo, actingCiv, command.targetCivName)
+
+        val diplomacyManager = actingCiv.getDiplomacyManager(demandingCiv)
+            ?: throw CommandException("'$playerCivId' has not met '${command.targetCivName}'")
+
+        val demand = try {
+            Demand.valueOf(command.demandName)
+        } catch (e: IllegalArgumentException) {
+            throw CommandException("Unknown demand '${command.demandName}'")
+        }
+
+        // The demand was raised by the other civ and recorded as a PopupAlert on the acting civ
+        // (value = the demanding civ's id). It must still be pending to respond to it.
+        val pendingAlert = actingCiv.popupAlerts.firstOrNull {
+            it.type == demand.demandAlert && it.value == demandingCiv.civID
+        } ?: throw CommandException(
+            "No pending '${command.demandName}' demand from '${command.targetCivName}' for '$playerCivId'"
+        )
+
+        // Delegate to the engine's own response path (mirrors AlertPopup.addDemand).
+        if (command.agree) diplomacyManager.agreeToDemand(demand)
+        else diplomacyManager.refuseDemand(demand) // (handles the DoNotAttackUs -> declareWar case internally)
+
+        // Consume the resolved alert so it isn't presented/answered again.
+        actingCiv.popupAlerts.remove(pendingAlert)
+    }
+
+    private fun executeCityStateProtection(gameInfo: GameInfo, playerCivId: String, command: GameCommand.CityStateProtection) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val cityState = requireOtherCiv(gameInfo, actingCiv, command.cityStateCivName)
+
+        if (!cityState.isCityState)
+            throw CommandException("'${command.cityStateCivName}' is not a city-state")
+        if (actingCiv.getDiplomacyManager(cityState) == null)
+            throw CommandException("'$playerCivId' has not met '${command.cityStateCivName}'")
+
+        // addProtectorCiv/removeProtectorCiv silently no-op when not allowed, so we validate first and
+        // delegate to the engine's own (city-state-side) methods, with the acting civ as the protector.
+        if (command.pledge) {
+            if (!cityState.cityStateFunctions.otherCivCanPledgeProtection(actingCiv))
+                throw CommandException("'$playerCivId' cannot pledge protection over '${command.cityStateCivName}' right now")
+            cityState.cityStateFunctions.addProtectorCiv(actingCiv)
+        } else {
+            if (!cityState.cityStateFunctions.otherCivCanWithdrawProtection(actingCiv))
+                throw CommandException("'$playerCivId' cannot withdraw protection over '${command.cityStateCivName}' right now")
+            cityState.cityStateFunctions.removeProtectorCiv(actingCiv)
+        }
+    }
+
+    // endregion
+
+    // region trade
+
+    private fun executeRespondToTrade(gameInfo: GameInfo, playerCivId: String, command: GameCommand.RespondToTrade) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val requestingCiv = requireOtherCiv(gameInfo, actingCiv, command.fromCivName)
+
+        // Match the pending request on the authority by requesting civ (the wire never carries the
+        // bilateral Trade — see ProposeTrade deferral note in GameCommand).
+        val tradeRequest = actingCiv.tradeRequests.firstOrNull { it.requestingCiv == requestingCiv.civID }
+            ?: throw CommandException(
+                "No pending trade request from '${command.fromCivName}' for '$playerCivId'"
+            )
+
+        if (command.accept) {
+            // Mirror TradePopup "Sounds good!": rebuild the TradeLogic and run the engine's own accept.
+            val tradeLogic = TradeLogic(actingCiv, requestingCiv)
+            tradeLogic.currentTrade.set(tradeRequest.trade)
+            tradeLogic.acceptTrade()
+        } else {
+            // Mirror TradePopup "Not this time.": engine sets the decline cooldown flags.
+            tradeRequest.decline(actingCiv)
+        }
+
+        // Both paths consume the request (TradePopup removes it on close in either case).
+        actingCiv.tradeRequests.remove(tradeRequest)
+    }
+
+    // endregion
+
+    // region policy
+
+    private fun executeAdoptPolicy(gameInfo: GameInfo, playerCivId: String, command: GameCommand.AdoptPolicy) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+
+        // Both individual policies and policy branches live in ruleset.policies keyed by name, so a
+        // single name resolves either.
+        val policy = gameInfo.ruleset.policies[command.policyName]
+            ?: throw CommandException("'${command.policyName}' is not a known policy in this ruleset")
+
+        val policyManager = actingCiv.policies
+        // Same gate the PolicyPickerScreen enforces (excluding UI-only isCurrentPlayer): not adopted,
+        // not an automatic branch-completion policy, rule-adoptable, and the civ can afford a policy.
+        if (policyManager.isAdopted(policy.name))
+            throw CommandException("'${command.policyName}' is already adopted by '$playerCivId'")
+        if (!policyManager.isAdoptable(policy))
+            throw CommandException("'${command.policyName}' is not adoptable by '$playerCivId' right now")
+        if (!policyManager.canAdoptPolicy())
+            throw CommandException("'$playerCivId' cannot adopt a policy right now (not enough culture / no free policy)")
+
+        // Delegate to the engine (handles culture cost, branch auto-completion, triggered uniques, …).
+        policyManager.adopt(policy)
+    }
+
+    // endregion
+
     // region helpers
+
+    /** A target civ named [name], distinct from [actingCiv], that exists in this game. */
+    private fun requireOtherCiv(gameInfo: GameInfo, actingCiv: Civilization, name: String): Civilization {
+        val targetCiv = gameInfo.getCivilizationOrNull(name)
+            ?: throw CommandException("Unknown target civ '$name'")
+        if (targetCiv.civID == actingCiv.civID)
+            throw CommandException("Target civ '$name' is the acting civ")
+        return targetCiv
+    }
+
 
     /** The issuing player must be a real civ in this game. */
     private fun requireCiv(gameInfo: GameInfo, playerCivId: String): Civilization =
