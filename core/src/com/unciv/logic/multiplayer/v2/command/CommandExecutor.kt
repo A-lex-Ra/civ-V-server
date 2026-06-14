@@ -17,11 +17,14 @@ import com.unciv.logic.trade.TradeLogic
 import com.unciv.models.Spy
 import com.unciv.models.SpyAction
 import com.unciv.models.UnitActionType
+import com.unciv.models.ruleset.Belief
+import com.unciv.models.ruleset.BeliefType
 import com.unciv.models.ruleset.INonPerpetualConstruction
 import com.unciv.models.stats.Stat
 import com.unciv.models.ruleset.unique.UniqueTarget
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.network.command.GameCommand
+import com.unciv.ui.screens.pickerscreens.ImprovementPickerScreen
 import com.unciv.ui.screens.worldscreen.unit.actions.UnitActionModifiers
 import com.unciv.ui.screens.worldscreen.unit.actions.UnitActions
 import com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsFromUniques
@@ -93,6 +96,18 @@ class CommandExecutor {
             is GameCommand.SellBuilding -> executeSellBuilding(gameInfo, playerCivId, command)
             is GameCommand.MoveSpy -> executeMoveSpy(gameInfo, playerCivId, command)
             is GameCommand.SetSpyAction -> executeSetSpyAction(gameInfo, playerCivId, command)
+            is GameCommand.UpgradeUnit -> executeUpgradeUnit(gameInfo, playerCivId, command)
+            is GameCommand.BuildImprovement -> executeBuildImprovement(gameInfo, playerCivId, command)
+            is GameCommand.Paradrop -> executeParadrop(gameInfo, playerCivId, command)
+            is GameCommand.GiftUnit -> executeGiftUnit(gameInfo, playerCivId, command)
+            is GameCommand.SwapUnits -> executeSwapUnits(gameInfo, playerCivId, command)
+            is GameCommand.DisbandUnit -> executeDisbandUnit(gameInfo, playerCivId, command)
+            is GameCommand.ChooseGreatPerson -> executeChooseGreatPerson(gameInfo, playerCivId, command)
+            is GameCommand.FoundPantheon -> executeFoundPantheon(gameInfo, playerCivId, command)
+            is GameCommand.FoundReligion -> executeFoundReligion(gameInfo, playerCivId, command)
+            is GameCommand.EnhanceReligion -> executeEnhanceReligion(gameInfo, playerCivId, command)
+            is GameCommand.SpreadReligion -> executeSpreadReligion(gameInfo, playerCivId, command)
+            is GameCommand.RemoveHeresy -> executeRemoveHeresy(gameInfo, playerCivId, command)
             is GameCommand.EndTurn ->
                 // Inter-turn processing (GameInfo.nextTurn) is owned by the session/authority loop,
                 // not the executor (see docs/multiplayer-v2.md Phase 3).
@@ -278,10 +293,30 @@ class CommandExecutor {
         // invokeUnitAction catalogue when a WorldScreen is actually available.
         if (applySimpleUnitActionDirectly(unit, actionType)) return
 
+        // Headless-safe path for the action types that ARE mapped in UnitActions.actionTypeToFunctions
+        // (SetUp, AirSweep, Paradrop-prep, Repair, ConstructImprovement, CreateImprovement, the
+        // great-person Hurry*/ConductTradeMission, SpreadReligion, RemoveHeresy, GiftUnit, …). The
+        // type-filtered overload `getUnitActions(unit, type)` invokes ONLY that one mapped getter and
+        // never enumerates the unmapped, GUI-eager actions (Disband/Swap/Escort/Skip), so it is safe
+        // without a WorldScreen. We run the first enabled action — the same one the UI would. Getters
+        // whose lambdas DO push a screen (ConstructImprovement opens the picker) are still rejected
+        // below when no WorldScreen exists, because they have dedicated commands instead.
+        if (actionType in MAPPED_HEADLESS_SAFE_ACTIONS) {
+            val invoked = UnitActions.getUnitActions(unit, actionType)
+                .firstOrNull { it.action != null }
+                ?.action
+            if (invoked == null)
+                throw CommandException(
+                    "Unit action '${command.actionType}' is not available to the unit at (${command.x}, ${command.y})"
+                )
+            invoked.invoke()
+            return
+        }
+
         if (!GUI.isWorldLoaded())
             throw CommandException(
                 "Unit action '${command.actionType}' cannot be applied without a WorldScreen on this authority " +
-                    "(only Fortify/FortifyUntilHealed/Sleep/SleepUntilHealed/Explore/StopMovement/StopExploration/StopAutomation are wired headless)"
+                    "(only the simple ongoing actions and the mapped headless-safe actions are wired headless)"
             )
 
         // A WorldScreen exists: delegate to the engine's full dispatcher. invokeUnitAction looks up
@@ -344,6 +379,23 @@ class CommandExecutor {
                 if (!unit.isAutomated()) throw CommandException("Unit is not automated")
                 unit.action = null
                 unit.automated = false
+            }
+            UnitActionType.Automate -> {
+                // Mirror UnitActions.addAutomateActions: this getter is unmapped (so not reachable via
+                // the mapped-action path) and the engine UI lambda is headless-safe.
+                if (unit.isAutomated()) throw CommandException("Unit is already automated")
+                if (!unit.hasMovement()) throw CommandException("Unit cannot be automated right now")
+                unit.automated = true
+                UnitAutomation.automateUnitMoves(unit)
+            }
+            UnitActionType.Pillage -> {
+                // The mapped-looking Pillage action wraps the real work in a GUI ConfirmPopup
+                // (UnitActionsPillage.getPillageActions). The single-action factory getPillageAction
+                // returns the raw, headless-safe action lambda with the engine's own availability guard.
+                val pillageAction = com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsPillage
+                    .getPillageAction(unit, unit.getTile())?.action
+                    ?: throw CommandException("Unit cannot pillage right now")
+                pillageAction.invoke()
             }
             else -> return false // not a simple action — let the caller try the full dispatcher
         }
@@ -856,6 +908,359 @@ class CommandExecutor {
 
     // endregion
 
+    // region unit actions (parameterized)
+
+    private fun executeUpgradeUnit(gameInfo: GameInfo, playerCivId: String, command: GameCommand.UpgradeUnit) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+
+        // Resolve the target to the civ's equivalent unit (the same lookup UnitActionsUpgrade uses).
+        if (gameInfo.ruleset.units[command.toUnitName] == null)
+            throw CommandException("'${command.toUnitName}' is not a known unit in this ruleset")
+        val upgradedUnit = actingCiv.getEquivalentUnit(command.toUnitName)
+
+        // Same gate the (paid) Upgrade action enables on: the engine's canUpgrade with resources,
+        // plus enough gold, movement left, standing on owned land, not embarked.
+        if (!unit.upgrade.canUpgrade(unitToUpgradeTo = upgradedUnit))
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot upgrade to '${command.toUnitName}'")
+        if (unit.isEmbarked())
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot upgrade while embarked")
+        if (!unit.hasMovement())
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) has no movement left to upgrade")
+        if (unit.getTile().getOwner() != actingCiv)
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) must be on owned territory to upgrade")
+        val goldCost = unit.upgrade.getCostOfUpgrade(upgradedUnit)
+        if (actingCiv.gold < goldCost)
+            throw CommandException("'$playerCivId' cannot afford to upgrade to '${command.toUnitName}' ($goldCost gold)")
+
+        // Delegate to the engine's own upgrade (deducts gold, replaces the unit instance).
+        unit.upgrade.performUpgrade(upgradedUnit, isFree = false, goldCostOfUpgrade = goldCost)
+    }
+
+    private fun executeBuildImprovement(gameInfo: GameInfo, playerCivId: String, command: GameCommand.BuildImprovement) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+
+        val improvement = gameInfo.ruleset.tileImprovements[command.improvementName]
+            ?: throw CommandException("'${command.improvementName}' is not a known improvement in this ruleset")
+
+        // Same gate the ImprovementPickerScreen uses to enable the improvement button:
+        // the unit can build it AND the only remaining build problems (if any) are reportable.
+        if (!unit.hasMovement())
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) has no movement left to build")
+        if (tile.isCityCenter())
+            throw CommandException("Cannot build an improvement on a city center")
+        if (!unit.canBuildImprovement(improvement, tile))
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot build '${command.improvementName}' here")
+        val problems = tile.improvementFunctions.getImprovementBuildingProblems(improvement, unit.cache.state).toSet()
+        if (!ImprovementPickerScreen.canReport(problems))
+            throw CommandException("'${command.improvementName}' cannot be built here right now")
+
+        // Apply via the same engine path the picker's accept() takes.
+        tile.startWorkingOnImprovement(improvement, actingCiv, unit)
+        unit.action = null // "wake up" the worker, as the picker does
+    }
+
+    private fun executeParadrop(gameInfo: GameInfo, playerCivId: String, command: GameCommand.Paradrop) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+        val targetTile = requireTile(gameInfo, command.targetX, command.targetY, "Target")
+
+        // The unit must actually offer a paradrop action right now (right uniques, hasn't moved). This
+        // mirrors getParadropActions and also fills unit.cache.paradropDestinationTileFilters used by
+        // the reachability gate below.
+        val paradropAction = UnitActions.getUnitActions(unit, UnitActionType.Paradrop)
+            .firstOrNull { it.action != null }
+            ?: throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot paradrop right now")
+
+        // Prepare the paradrop (the same toggle the action performs) so the engine's movement gate
+        // routes through canParadropOn for the destination.
+        if (!unit.isPreparingParadrop()) paradropAction.action!!.invoke()
+        if (!unit.isPreparingParadrop())
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) could not prepare a paradrop")
+
+        // Validate the destination with the engine's own per-turn reachability (paradrop range +
+        // visibility + passability), then perform the drop. On any failure, cancel the prep so we
+        // don't leave the unit half-prepared.
+        if (targetTile == tile || !unit.movement.canReachInCurrentTurn(targetTile)) {
+            unit.action = null
+            throw CommandException(
+                "Unit at (${command.unitX}, ${command.unitY}) cannot paradrop to (${command.targetX}, ${command.targetY})"
+            )
+        }
+        unit.movement.moveToTile(targetTile)
+    }
+
+    private fun executeGiftUnit(gameInfo: GameInfo, playerCivId: String, command: GameCommand.GiftUnit) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+
+        // The recipient is the owner of the territory the unit stands in (mirrors getGiftActions).
+        val recipient = tile.getOwner()
+            ?: throw CommandException("Unit at (${command.unitX}, ${command.unitY}) is not in any civ's territory; cannot gift")
+        if (recipient.civID == actingCiv.civID)
+            throw CommandException("Cannot gift a unit to its own civ")
+
+        // Same eligibility gate the action uses.
+        if (unit.isTransported)
+            throw CommandException("Transported units cannot be gifted")
+        if (recipient.isCityState) {
+            if (recipient.isAtWarWith(actingCiv))
+                throw CommandException("Cannot gift a unit to a city-state you are at war with")
+            val eligible = unit.isMilitary() || unit.getMatchingUniques(
+                UniqueType.GainInfluenceWithUnitGiftToCityState, checkCivInfoUniques = true
+            ).any { unit.matchesFilter(it.params[1]) }
+            if (!eligible)
+                throw CommandException("'${recipient.civName}' (city-state) will not accept this unit as a gift")
+        } else if (!tile.isFriendlyTerritory(actingCiv)) {
+            throw CommandException("Can only gift a unit inside friendly major-civ territory")
+        }
+
+        // Apply the same engine effects the action lambda does (influence/diplomatic modifiers + the
+        // actual gift). A Great Person given to a city-state is destroyed, as in single-player.
+        if (recipient.isCityState) {
+            for (unique in unit.getMatchingUniques(
+                UniqueType.GainInfluenceWithUnitGiftToCityState, checkCivInfoUniques = true
+            )) {
+                if (unit.matchesFilter(unique.params[1])) {
+                    recipient.getDiplomacyManager(actingCiv)!!.addInfluence(unique.params[0].toFloat() - 5f)
+                    break
+                }
+            }
+            recipient.getDiplomacyManager(actingCiv)!!.addInfluence(5f)
+        } else {
+            recipient.getDiplomacyManager(actingCiv)!!
+                .addModifier(com.unciv.logic.civilization.diplomacy.DiplomaticModifiers.GaveUsUnits, 5f)
+        }
+
+        if (recipient.isCityState && unit.isGreatPerson()) unit.destroy()
+        else unit.gift(recipient)
+    }
+
+    private fun executeSwapUnits(gameInfo: GameInfo, playerCivId: String, command: GameCommand.SwapUnits) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+        val otherTile = requireTile(gameInfo, command.otherX, command.otherY, "Swap target")
+
+        // canUnitSwapTo encapsulates the whole swap legality (reachable this turn, same-type owned
+        // partner that can reach our tile, both can enter, escort handling) — the same gate the UI's
+        // swap mode uses to highlight valid partner tiles.
+        if (!unit.movement.canUnitSwapTo(otherTile))
+            throw CommandException(
+                "Unit at (${command.unitX}, ${command.unitY}) cannot swap with (${command.otherX}, ${command.otherY})"
+            )
+
+        unit.movement.swapMoveToTile(otherTile)
+    }
+
+    private fun executeDisbandUnit(gameInfo: GameInfo, playerCivId: String, command: GameCommand.DisbandUnit) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+
+        // The UI only offers Disband when the unit still has movement (mirrors addDisbandAction).
+        if (!unit.hasMovement())
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot be disbanded right now")
+
+        // Apply the confirmed intent (the popup's confirm callback): disband + refresh upkeep.
+        unit.disband()
+        actingCiv.updateStatsForNextTurn()
+    }
+
+    // endregion
+
+    // region great person
+
+    private fun executeChooseGreatPerson(gameInfo: GameInfo, playerCivId: String, command: GameCommand.ChooseGreatPerson) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val greatPeople = actingCiv.greatPeople
+
+        // Same gate as GreatPersonPickerScreen: a free pick must be available and the unit must be a
+        // valid great person for this civ (and within the Maya long-count pool when restricted).
+        if (greatPeople.freeGreatPeople <= 0)
+            throw CommandException("'$playerCivId' has no free Great Person to choose")
+        val chosen = greatPeople.getGreatPeople().firstOrNull { it.name == command.unitName }
+            ?: throw CommandException("'${command.unitName}' is not an available Great Person for '$playerCivId'")
+        val useMayaLongCount = greatPeople.mayaLimitedFreeGP > 0
+        if (useMayaLongCount && command.unitName !in greatPeople.longCountGPPool)
+            throw CommandException("'${command.unitName}' is not selectable under the Maya long-count restriction")
+
+        // Mirror confirmAction: add the unit in the capital and decrement the free-GP counters.
+        actingCiv.units.addUnit(chosen, actingCiv.getCapital())
+        greatPeople.freeGreatPeople--
+        if (useMayaLongCount) {
+            greatPeople.mayaLimitedFreeGP--
+            greatPeople.longCountGPPool.remove(command.unitName)
+        }
+    }
+
+    // endregion
+
+    // region religion
+
+    private fun executeFoundPantheon(gameInfo: GameInfo, playerCivId: String, command: GameCommand.FoundPantheon) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val religionManager = actingCiv.religionManager
+
+        // Same gate the PantheonPickerScreen uses.
+        if (!religionManager.canFoundOrExpandPantheon())
+            throw CommandException("'$playerCivId' cannot found or expand a pantheon right now")
+
+        val belief = gameInfo.ruleset.beliefs[command.beliefName]
+            ?: throw CommandException("'${command.beliefName}' is not a known belief in this ruleset")
+        if (belief.type != BeliefType.Pantheon)
+            throw CommandException("'${command.beliefName}' is not a Pantheon belief")
+        // The belief must be free (not already taken by anyone) — same check the picker enables on.
+        if (religionManager.getReligionWithBelief(belief) != null)
+            throw CommandException("Belief '${command.beliefName}' is already taken")
+
+        // Apply via the engine's own path (chooseBeliefs founds the pantheon when state == None).
+        religionManager.chooseBeliefs(listOf(belief), useFreeBeliefs = religionManager.usingFreeBeliefs())
+    }
+
+    private fun executeFoundReligion(gameInfo: GameInfo, playerCivId: String, command: GameCommand.FoundReligion) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val prophet = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+        val religionManager = actingCiv.religionManager
+
+        // The prophet must be able to found a religion here AND offer the action right now (uniques,
+        // movement, side-effect availability) — mirrors getFoundReligionActions.
+        if (!religionManager.mayFoundReligionHere(tile))
+            throw CommandException("'$playerCivId' cannot found a religion at (${command.unitX}, ${command.unitY})")
+        if (UnitActions.getUnitActions(prophet, UnitActionType.FoundReligion).none { it.action != null })
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot found a religion right now")
+
+        // Validate the religion icon name (must be a ruleset religion not yet taken in this game).
+        if (command.religionName !in gameInfo.ruleset.religions)
+            throw CommandException("'${command.religionName}' is not a religion in this ruleset")
+        if (gameInfo.religions.values.any { it.name == command.religionName })
+            throw CommandException("Religion '${command.religionName}' has already been founded")
+
+        // Resolve + validate the chosen beliefs against the engine's own "what to choose" plan.
+        val beliefs = resolveChoosableBeliefs(
+            gameInfo, religionManager, command.beliefNames, religionManager.getBeliefsToChooseAtFounding()
+        )
+
+        // Replay the picker's OK action: assign the religion name/holy city, then add the beliefs.
+        val displayName = command.displayName.ifBlank { command.religionName }
+        religionManager.foundReligion(prophet) // sets state to FoundingReligion + records holy city
+        religionManager.foundReligion(displayName, command.religionName)
+        religionManager.chooseBeliefs(beliefs, religionManager.usingFreeBeliefs())
+    }
+
+    private fun executeEnhanceReligion(gameInfo: GameInfo, playerCivId: String, command: GameCommand.EnhanceReligion) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val tile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val prophet = requireUnitOnTile(tile, actingCiv, command.unitX, command.unitY)
+        val religionManager = actingCiv.religionManager
+
+        if (!religionManager.mayEnhanceReligionHere(tile))
+            throw CommandException("'$playerCivId' cannot enhance a religion at (${command.unitX}, ${command.unitY})")
+        if (UnitActions.getUnitActions(prophet, UnitActionType.EnhanceReligion).none { it.action != null })
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot enhance a religion right now")
+
+        val beliefs = resolveChoosableBeliefs(
+            gameInfo, religionManager, command.beliefNames, religionManager.getBeliefsToChooseAtEnhancing()
+        )
+
+        // Replay the picker's OK action: mark the prophet used, then add the beliefs.
+        religionManager.useProphetForEnhancingReligion(prophet)
+        religionManager.chooseBeliefs(beliefs, religionManager.usingFreeBeliefs())
+    }
+
+    private fun executeSpreadReligion(gameInfo: GameInfo, playerCivId: String, command: GameCommand.SpreadReligion) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val unitTile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(unitTile, actingCiv, command.unitX, command.unitY)
+        val targetCityTile = requireCityCenterTile(gameInfo, command.targetCityX, command.targetCityY)
+
+        // The unit must be standing on the target city's tile (the spread action acts on the unit's
+        // own current tile) and currently be able to spread there.
+        if (unitTile != targetCityTile)
+            throw CommandException("The missionary must be on the target city's center tile to spread religion")
+        if (!actingCiv.religionManager.maySpreadReligionNow(unit))
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) cannot spread religion here right now")
+
+        invokeUnitTileAction(unit, UnitActionType.SpreadReligion, "spread religion")
+    }
+
+    private fun executeRemoveHeresy(gameInfo: GameInfo, playerCivId: String, command: GameCommand.RemoveHeresy) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val unitTile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(unitTile, actingCiv, command.unitX, command.unitY)
+        val targetCityTile = requireCityCenterTile(gameInfo, command.targetCityX, command.targetCityY)
+
+        if (unitTile != targetCityTile)
+            throw CommandException("The inquisitor must be on the target city's center tile to remove heresy")
+        val city = targetCityTile.getCity()
+        if (city == null || city.civ.civID != actingCiv.civID)
+            throw CommandException("Remove Heresy can only be used in your own city")
+
+        invokeUnitTileAction(unit, UnitActionType.RemoveHeresy, "remove heresy")
+    }
+
+    /** Run the (headless-safe, tile-acting) unit action [type] for [unit], or fail cleanly. */
+    private fun invokeUnitTileAction(unit: MapUnit, type: UnitActionType, label: String) {
+        val action = UnitActions.getUnitActions(unit, type)
+            .firstOrNull { it.action != null }
+            ?.action
+            ?: throw CommandException("Unit cannot $label right now")
+        action.invoke()
+    }
+
+    /**
+     * Resolve [beliefNames] to [Belief] objects and validate they form a legal selection: every name
+     * exists, none is already taken in this game, and the multiset of belief *types* exactly matches
+     * the engine's own plan of [allowedByType] beliefs to choose for this prophet use. This mirrors the
+     * ReligiousBeliefsPickerScreen, which only lets the player confirm once each required slot is filled
+     * with an available belief of the right type.
+     */
+    private fun resolveChoosableBeliefs(
+        gameInfo: GameInfo,
+        religionManager: com.unciv.logic.civilization.managers.ReligionManager,
+        beliefNames: List<String>,
+        allowedByType: com.unciv.models.Counter<BeliefType>
+    ): List<Belief> {
+        val beliefs = beliefNames.map { name ->
+            gameInfo.ruleset.beliefs[name]
+                ?: throw CommandException("'$name' is not a known belief in this ruleset")
+        }
+
+        // None of the chosen beliefs may already be held by another religion.
+        for (belief in beliefs) {
+            val owner = religionManager.getReligionWithBelief(belief)
+            if (owner != null && owner != religionManager.religion)
+                throw CommandException("Belief '${belief.name}' is already taken")
+        }
+
+        // The chosen belief types must exactly match what the engine expects to be chosen, where an
+        // "Any" slot accepts a belief of any type. Validate counts so we neither over- nor under-pick.
+        val required = com.unciv.models.Counter<BeliefType>()
+        for ((type, count) in allowedByType) required.add(type, count)
+        val totalRequired = required.sumValues()
+        if (beliefs.size != totalRequired)
+            throw CommandException("Expected $totalRequired belief(s) to choose, got ${beliefs.size}")
+
+        // Greedily assign each chosen belief to a matching required slot (its own type, else an Any slot).
+        val remaining = required.clone()
+        for (belief in beliefs) {
+            when {
+                remaining[belief.type] > 0 -> remaining.add(belief.type, -1)
+                remaining[BeliefType.Any] > 0 -> remaining.add(BeliefType.Any, -1)
+                else -> throw CommandException("Belief '${belief.name}' (${belief.type}) is not a valid choice here")
+            }
+        }
+        return beliefs
+    }
+
+    // endregion
+
     // region helpers
 
     /** A target civ named [name], distinct from [actingCiv], that exists in this game. */
@@ -898,6 +1303,20 @@ class CommandExecutor {
     private fun findMovableUnit(tile: Tile, civId: String): MapUnit? =
         tile.getUnits().firstOrNull { it.owner == civId }
 
+    /** The (first) unit on [tile] owned by [actingCiv]; throws cleanly if none. */
+    private fun requireUnitOnTile(tile: Tile, actingCiv: Civilization, x: Int, y: Int): MapUnit =
+        tile.getUnits().firstOrNull { it.owner == actingCiv.civID }
+            ?: throw CommandException("No unit owned by '${actingCiv.civID}' at tile ($x, $y)")
+
+    /** The tile at ([x], [y]) which must be a city center (of any civ). */
+    private fun requireCityCenterTile(gameInfo: GameInfo, x: Int, y: Int): Tile {
+        val tile = requireTile(gameInfo, x, y, "City")
+        val city = tile.getCity()
+        if (city == null || !tile.isCityCenter() || city.location != tile.position)
+            throw CommandException("Tile ($x, $y) is not a city center")
+        return tile
+    }
+
     /**
      * The spy named [spyName] belonging to [actingCiv], by its stable `Spy.name`.
      *
@@ -911,4 +1330,34 @@ class CommandExecutor {
             ?: throw CommandException("No spy named '$spyName' for '${actingCiv.civID}'")
 
     // endregion
+
+    private companion object {
+        /**
+         * Unit-action types that are registered in [UnitActions] `actionTypeToFunctions` AND whose
+         * getter + action lambda are headless-safe (touch no `GUI`/WorldScreen). For these the executor
+         * can drive [GameCommand.GenericUnitAction] without a WorldScreen by invoking the type-filtered
+         * getter directly (which never enumerates the GUI-eager unmapped actions). This routes the
+         * on-map Great Person actions and the no-target religion actions through GenericUnitAction
+         * instead of dedicated commands. (ConstructImprovement is deliberately excluded — its lambda
+         * opens the improvement picker — it has the dedicated [GameCommand.BuildImprovement] instead.)
+         */
+        val MAPPED_HEADLESS_SAFE_ACTIONS: Set<UnitActionType> = setOf(
+            UnitActionType.SetUp,
+            UnitActionType.AirSweep,
+            UnitActionType.Paradrop,
+            UnitActionType.Repair,
+            UnitActionType.CreateImprovement,
+            UnitActionType.HurryResearch,
+            UnitActionType.HurryPolicy,
+            UnitActionType.HurryWonder,
+            UnitActionType.HurryBuilding,
+            UnitActionType.ConductTradeMission,
+            UnitActionType.SpreadReligion,
+            UnitActionType.RemoveHeresy,
+            UnitActionType.GiftUnit,
+            UnitActionType.Transform,
+            UnitActionType.AddInCapital,
+            UnitActionType.Guard
+        )
+    }
 }

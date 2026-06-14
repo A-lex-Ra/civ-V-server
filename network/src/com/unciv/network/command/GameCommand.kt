@@ -459,4 +459,233 @@ sealed interface GameCommand {
     ) : GameCommand
 
     // endregion
+
+    // region Unit actions (parameterized)
+
+    /**
+     * The acting civ upgrades its unit on tile ([unitX], [unitY]) into [toUnitName] (a base-unit name
+     * from the ruleset).
+     *
+     * Mirrors the UnitUpgradeMenu / `UnitActionsUpgrade`: the target is resolved to the civ's
+     * equivalent unit, the engine's own `UnitUpgradeManager.canUpgrade` gate plus the action's
+     * enablement checks (enough gold, movement left, on owned land, not embarked) are validated, then
+     * `UnitUpgradeManager.performUpgrade` is called. Only direct, paid upgrades are routed (free/special
+     * ruins upgrades are engine-triggered, not player intents).
+     */
+    @Serializable
+    @SerialName("upgradeUnit")
+    data class UpgradeUnit(
+        val unitX: Int,
+        val unitY: Int,
+        val toUnitName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ's worker-type unit on tile ([unitX], [unitY]) starts building improvement
+     * [improvementName] on its current tile.
+     *
+     * Mirrors `UnitActionsFromUniques.getBuildingImprovementsActions` + the ImprovementPickerScreen
+     * choice: the dedicated command carries the picked [improvementName] (the (x,y,actionType) tuple of
+     * [GenericUnitAction] cannot carry it, and the picker opens a WorldScreen). Validated with
+     * `MapUnit.canBuildImprovement` and `ImprovementPickerScreen.canReport(getImprovementBuildingProblems)`,
+     * then applied via `Tile.startWorkingOnImprovement` (the same path the picker's `accept` uses).
+     */
+    @Serializable
+    @SerialName("buildImprovement")
+    data class BuildImprovement(
+        val unitX: Int,
+        val unitY: Int,
+        val improvementName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ paradrops its unit on tile ([unitX], [unitY]) to the tile ([targetX], [targetY]).
+     *
+     * Mirrors the two-step UI paradrop (prepare via the Paradrop action, then click the destination):
+     * the authority prepares the paradrop, validates the destination with the engine's own
+     * `UnitMovement.canReachInCurrentTurn` (which routes through the paradrop range/visibility gate),
+     * then delegates to `UnitMovement.moveToTile`, which performs the airborne drop (movement + an attack
+     * charge). A dedicated command is required because the drop needs the destination tile that the
+     * action-type tuple cannot carry.
+     */
+    @Serializable
+    @SerialName("paradrop")
+    data class Paradrop(
+        val unitX: Int,
+        val unitY: Int,
+        val targetX: Int,
+        val targetY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ gifts its unit on tile ([unitX], [unitY]) to the civ that owns that tile's
+     * territory.
+     *
+     * Mirrors `UnitActions.getGiftActions`: a unit can be gifted to the major civ / city-state whose
+     * territory it stands in (city-states only take eligible military/special units; majors must be
+     * friendly). The recipient is the tile owner, so no target id is carried. Validated against the same
+     * gate, then delegated to `MapUnit.gift` (a Great Person given to a city-state is destroyed, as in
+     * single-player).
+     */
+    @Serializable
+    @SerialName("giftUnit")
+    data class GiftUnit(
+        val unitX: Int,
+        val unitY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ swaps its unit on tile ([unitX], [unitY]) with its own same-type unit on tile
+     * ([otherX], [otherY]).
+     *
+     * Mirrors the "Swap units" action: the engine UI only toggles a swap *mode* and resolves the actual
+     * swap when the player clicks the partner tile, so the partner tile is carried explicitly here.
+     * Validated with `UnitMovement.canUnitSwapTo`, then applied via `UnitMovement.swapMoveToTile`.
+     */
+    @Serializable
+    @SerialName("swapUnits")
+    data class SwapUnits(
+        val unitX: Int,
+        val unitY: Int,
+        val otherX: Int,
+        val otherY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ disbands its unit on tile ([unitX], [unitY]).
+     *
+     * The engine's Disband action lambda opens a confirmation popup via `GUI.getWorldScreen()` (not
+     * headless-safe and not driveable by [GenericUnitAction]), so a dedicated command applies the
+     * already-confirmed intent by calling `MapUnit.disband()` directly and refreshing upkeep, mirroring
+     * the popup's confirm callback.
+     */
+    @Serializable
+    @SerialName("disbandUnit")
+    data class DisbandUnit(
+        val unitX: Int,
+        val unitY: Int
+    ) : GameCommand
+
+    // NOTE: SetUp, AirSweep, Automate, Repair, and Pillage are intentionally NOT dedicated commands.
+    // They carry no choice the (x,y,actionType) tuple of GenericUnitAction can't express, and their
+    // engine action lambdas are headless-safe, so the executor drives them through the existing
+    // GenericUnitAction path (extended to invoke mapped action getters without a WorldScreen). See
+    // CommandExecutor.applySimpleUnitActionDirectly / the GenericUnitAction headless extension.
+
+    // endregion
+
+    // region Great person
+
+    /**
+     * The acting civ picks the free Great Person [unitName] (a base-unit name from the ruleset).
+     *
+     * Mirrors `GreatPersonPickerScreen.confirmAction`: validated for an available free pick (the civ has
+     * `freeGreatPeople > 0`, the unit is in `getGreatPeople()`, and — under the Maya long-count
+     * restriction — is in `longCountGPPool`), then the unit is added in the capital and the free-GP
+     * counters are decremented exactly as the picker does.
+     */
+    @Serializable
+    @SerialName("chooseGreatPerson")
+    data class ChooseGreatPerson(
+        val unitName: String
+    ) : GameCommand
+
+    // NOTE: The on-map Great Person actions (HurryResearch/HurryPolicy/HurryWonder/HurryBuilding/
+    // ConductTradeMission and the great-person Create-Improvement) are NOT dedicated commands. They act
+    // on the unit's own tile/current city, carry no extra choice, are registered in
+    // UnitActions.actionTypeToFunctions, and their action lambdas are headless-safe — so they route
+    // through GenericUnitAction (the executor invokes the mapped action getter directly, without a
+    // WorldScreen). See the GenericUnitAction headless extension in CommandExecutor.
+
+    // endregion
+
+    // region Religion
+
+    /**
+     * The acting civ founds a pantheon with the belief [beliefName] (a Pantheon-type belief from the
+     * ruleset).
+     *
+     * Mirrors `PantheonPickerScreen`: validated with `ReligionManager.canFoundOrExpandPantheon` and that
+     * the belief is an available, choosable Pantheon belief, then applied via
+     * `ReligionManager.chooseBeliefs([belief], useFreeBeliefs)` (which internally calls the private
+     * `foundPantheon` and advances the religion state) — the exact path the picker's OK action takes.
+     */
+    @Serializable
+    @SerialName("foundPantheon")
+    data class FoundPantheon(
+        val beliefName: String
+    ) : GameCommand
+
+    /**
+     * The acting civ founds a religion with its great prophet on tile ([unitX], [unitY]), under the
+     * religion icon [religionName] (a religion name from `ruleset.religions`), shown as [displayName]
+     * (defaults to [religionName] when blank), choosing the beliefs [beliefNames].
+     *
+     * Mirrors `ReligiousBeliefsPickerScreen` for founding: the prophet's found-religion ability must be
+     * usable here (`mayFoundReligionHere`), the icon must be free, and every belief must exist and be
+     * currently choosable (right type, not already taken). The authority replays the picker's OK action:
+     * `ReligionManager.foundReligion(displayName, religionName)` then `chooseBeliefs(beliefs, …)`. The
+     * belief list serializes cleanly as `List<String>`.
+     */
+    @Serializable
+    @SerialName("foundReligion")
+    data class FoundReligion(
+        val unitX: Int,
+        val unitY: Int,
+        val religionName: String,
+        val displayName: String = "",
+        val beliefNames: List<String> = emptyList()
+    ) : GameCommand
+
+    /**
+     * The acting civ enhances its religion with its great prophet on tile ([unitX], [unitY]), choosing
+     * the beliefs [beliefNames].
+     *
+     * Mirrors `ReligiousBeliefsPickerScreen` for enhancing: the prophet's enhance ability must be usable
+     * here (`mayEnhanceReligionHere`), and every belief must exist and be currently choosable. The
+     * authority replays the picker's OK action: `ReligionManager.useProphetForEnhancingReligion(prophet)`
+     * then `chooseBeliefs(beliefs, …)`.
+     */
+    @Serializable
+    @SerialName("enhanceReligion")
+    data class EnhanceReligion(
+        val unitX: Int,
+        val unitY: Int,
+        val beliefNames: List<String> = emptyList()
+    ) : GameCommand
+
+    /**
+     * The acting civ's missionary/prophet on tile ([unitX], [unitY]) spreads its religion to the city
+     * centered on ([targetCityX], [targetCityY]).
+     *
+     * Mirrors `UnitActionsReligion.getSpreadReligionActions`: the unit must currently be able to spread
+     * (`maySpreadReligionNow`) onto a valid city tile. Applied via the engine's own spread action
+     * (pressure + side effects), exactly as the unit action does.
+     */
+    @Serializable
+    @SerialName("spreadReligion")
+    data class SpreadReligion(
+        val unitX: Int,
+        val unitY: Int,
+        val targetCityX: Int,
+        val targetCityY: Int
+    ) : GameCommand
+
+    /**
+     * The acting civ's inquisitor on tile ([unitX], [unitY]) removes heresy (foreign religious
+     * pressure) from its own city centered on ([targetCityX], [targetCityY]).
+     *
+     * Mirrors `UnitActionsReligion.getRemoveHeresyActions`: the unit must currently have a usable
+     * remove-heresy ability on that own city. Applied via the engine's own remove-heresy action.
+     */
+    @Serializable
+    @SerialName("removeHeresy")
+    data class RemoveHeresy(
+        val unitX: Int,
+        val unitY: Int,
+        val targetCityX: Int,
+        val targetCityY: Int
+    ) : GameCommand
+
+    // endregion
 }
