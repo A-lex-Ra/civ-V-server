@@ -450,7 +450,7 @@ class WorldScreen(
         }
 
         // If the game has ended, lets stop AutoPlay
-        if (autoPlay.isAutoPlaying() && !gameInfo.oneMoreTurnMode && (viewingCiv.isDefeated() || gameInfo.checkForVictory())) {
+        if (autoPlay.isAutoPlaying() && !gameInfo.oneMoreTurnMode && (viewingCiv.isDefeated() || isGameOver())) {
             autoPlay.stopAutoPlay()
         }
 
@@ -458,7 +458,7 @@ class WorldScreen(
             when {
                 viewingCiv.shouldShowDiplomaticVotingResults() ->
                     UncivGame.Current.pushScreen(DiplomaticVoteResultScreen(gameInfo.diplomaticVictoryVotesCast, viewingCiv))
-                !gameInfo.oneMoreTurnMode && (viewingCiv.isDefeated() || gameInfo.checkForVictory()) ->
+                !gameInfo.oneMoreTurnMode && (viewingCiv.isDefeated() || isGameOver()) ->
                     game.pushScreen(VictoryScreen(this))
                 viewingCiv.greatPeople.freeGreatPeople > 0 ->
                     game.pushScreen(GreatPersonPickerScreen(this, viewingCiv))
@@ -499,6 +499,24 @@ class WorldScreen(
                 it.isAvailable(stateForConditionals)
         }
     }
+
+    /**
+     * Whether the game is over from THIS screen's perspective — used by [update] to decide whether to
+     * show the [VictoryScreen].
+     *
+     * EXPERIMENTAL / PREVIEW (multiplayer-v2): a v2 WorldScreen renders a per-player
+     * **visibility-filtered** view (option A — see [com.unciv.logic.multiplayer.v2.visibility.PlayerViewProjector]),
+     * on which the engine's victory evaluation would FALSE-POSITIVE: enemy cities the local player
+     * has not explored are stripped from the projection, so [GameInfo.checkForVictory]'s domination
+     * check (which re-runs `getVictoryTypeAchieved` per civ) sees the local player owning every
+     * *visible* capital and declares a bogus victory on turn 1. The authority evaluates victory on the
+     * canonical state and ships the verdict as [GameInfo.victoryData] inside the filtered snapshot, so
+     * a v2 client must only TRUST that field and never recompute locally. (`checkForVictory()` is also
+     * destructive — it sets `victoryData` — which would corrupt the client's view to boot.)
+     */
+    private fun isGameOver(): Boolean =
+        if (gameInfo.gameParameters.isMultiplayerV2) gameInfo.victoryData != null
+        else gameInfo.checkForVictory()
 
     private fun displayTutorialsOnUpdate() {
 
