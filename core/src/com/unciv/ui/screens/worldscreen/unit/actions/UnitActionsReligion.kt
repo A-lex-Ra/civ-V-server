@@ -37,6 +37,10 @@ object UnitActionsReligion {
             )
             else UnitActionType.FoundReligion.value,
             action = {
+                // EXPERIMENTAL / PREVIEW (multiplayer-v2): the prophet is about to be consumed and the
+                // belief picker opens later, so stash the prophet's tile now — the picker confirm keys
+                // the atomic FoundReligion command with it (see V2GameManager.pendingProphetTile).
+                com.unciv.UncivGame.Current.v2GameManager?.pendingProphetTile = unit.currentTile.position
                 unit.civ.religionManager.foundReligion(unit)
 
                 if (hasActionModifiers) UnitActionModifiers.activateSideEffects(unit, unique)
@@ -67,6 +71,9 @@ object UnitActionsReligion {
             )
             else baseTitle,
             action = {
+                // EXPERIMENTAL / PREVIEW (multiplayer-v2): stash the prophet's tile before it is
+                // consumed; the belief picker confirm keys the atomic EnhanceReligion command with it.
+                com.unciv.UncivGame.Current.v2GameManager?.pendingProphetTile = unit.currentTile.position
                 unit.civ.religionManager.useProphetForEnhancingReligion(unit)
                 if (hasActionModifiers) UnitActionModifiers.activateSideEffects(unit, unique)
                 else unit.consume()

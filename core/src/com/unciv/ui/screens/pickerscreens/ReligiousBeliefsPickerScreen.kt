@@ -77,20 +77,31 @@ class ReligiousBeliefsPickerScreen (
             if (pickIconAndName) "Choose a Religion"
             else "Enhance [${currentReligion.getReligionDisplayName()}]"
         ) {
-            // multiplayer-v2 DEFERRED (FoundReligion / EnhanceReligion):
-            // GameCommand.FoundReligion / EnhanceReligion both require the founding/enhancing prophet's
-            // tile (unitX/unitY) — the authority's executeFoundReligion/executeEnhanceReligion replay
-            // the full flow from a prophet-alive state (requireUnitOnTile + the FoundReligion/
-            // EnhanceReligion unit-action availability check). At THIS confirm site the prophet is
-            // already gone: the Found/Enhance *unit action* (UnitActionsReligion) consumes the prophet
-            // and only sets religionState; this picker is opened later from the NextTurnAction button
-            // and merely chooses the name + beliefs. The picker has no public handle to that tile
-            // (ReligionManager.foundingCityId is private and getHolyCity() is null during founding), so
-            // the command cannot be assembled cleanly here without guessing an engine API.
-            // => Emit FoundReligion(unitX,unitY,religionName,displayName,beliefNames) /
-            //    EnhanceReligion(unitX,unitY,beliefNames) from the FoundReligion/EnhanceReligion unit
-            //    action in UnitActionsReligion.kt (where the prophet's tile is in scope), carrying the
-            //    name + chosen beliefs forward. Owned by the unit-actions agent; left unwired here.
+            // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the founding/enhancing intent to the
+            // authority as a single atomic command keyed by the founding prophet's tile, which the
+            // Found/Enhance unit action stashed in V2GameManager.pendingProphetTile (the prophet is
+            // consumed before this picker opens). The authority replays the whole flow (consume the
+            // still-alive prophet on canonical, set name + choose beliefs). Send BEFORE the local apply
+            // below (which mutates religionState), then FALL THROUGH for optimistic local feedback.
+            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            if (v2 != null) {
+                val prophetTile = v2.pendingProphetTile
+                if (prophetTile != null) {
+                    if (civInfo.religionManager.religionState == ReligionState.FoundingReligion)
+                        v2.sendCommand(com.unciv.network.command.GameCommand.FoundReligion(
+                            unitX = prophetTile.x, unitY = prophetTile.y,
+                            religionName = religionName!!, displayName = displayName ?: "",
+                            beliefNames = beliefsToChoose.map { it.belief!!.name }
+                        ))
+                    else
+                        v2.sendCommand(com.unciv.network.command.GameCommand.EnhanceReligion(
+                            unitX = prophetTile.x, unitY = prophetTile.y,
+                            beliefNames = beliefsToChoose.map { it.belief!!.name }
+                        ))
+                    v2.pendingProphetTile = null
+                }
+            }
+
             if (civInfo.religionManager.religionState == ReligionState.FoundingReligion)
                 civInfo.religionManager.foundReligion(displayName!!, religionName!!)
             chooseBeliefs(beliefsToChoose.map { it.belief!! }, usingFreeBeliefs())

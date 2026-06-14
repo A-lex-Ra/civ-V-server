@@ -2,6 +2,7 @@ package com.unciv.logic.multiplayer.v2
 
 import com.unciv.UncivGame
 import com.unciv.logic.GameInfo
+import com.unciv.logic.map.HexCoord
 import com.unciv.logic.multiplayer.v2.client.ClientGameView
 import com.unciv.logic.multiplayer.v2.net.V2GameClient
 import com.unciv.logic.multiplayer.v2.net.V2GameHost
@@ -110,6 +111,18 @@ class V2GameManager {
     /** The turn number at which the local player last ended; a view past it means the round resolved. */
     @Volatile
     private var localEndedAtTurn: Int = -1
+
+    /**
+     * EXPERIMENTAL / PREVIEW (multiplayer-v2): the tile of the Great Prophet currently founding /
+     * enhancing a religion. Founding is a TWO-step UI flow — the Found/Enhance unit action consumes
+     * the prophet and only *later* (via a NextTurnAction) opens the belief picker — so we capture the
+     * prophet's tile when the action fires (the only place it is still in scope) and read it at the
+     * picker's confirm to key the single atomic [GameCommand.FoundReligion]/[GameCommand.EnhanceReligion].
+     * The found/enhance unit action is intentionally NOT routed on its own, so the authority still holds
+     * the prophet when that atomic command arrives and consumes it. Null when no founding is in progress.
+     */
+    @Volatile
+    var pendingProphetTile: HexCoord? = null
 
     /**
      * HOST a v2 game over the relay. Connects, creates the room, wraps [gameInfo] in a [V2GameHost]
@@ -327,6 +340,7 @@ class V2GameManager {
         localUserId = null
         localEndedTurn = false
         localEndedAtTurn = -1
+        pendingProphetTile = null
     }
 
     companion object {
