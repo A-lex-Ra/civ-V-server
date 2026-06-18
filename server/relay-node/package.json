@@ -1,0 +1,17 @@
+{
+  "name": "unciv-relay",
+  "version": "1.0.0",
+  "description": "Lightweight, JVM-free multiplayer-v3 relay — wire-compatible with server/src/com/unciv/app/server/RelayServer.kt",
+  "license": "MPL-2.0",
+  "type": "commonjs",
+  "main": "relay.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node relay.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
