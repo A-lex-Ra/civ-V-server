@@ -7,6 +7,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.TextButton.TextButtonStyle
 import com.unciv.ui.components.input.KeyboardBinding
 import com.unciv.ui.components.input.onLongPress
 import com.unciv.ui.popups.Popup
+import com.unciv.ui.popups.ToastPopup
 import com.unciv.ui.screens.basescreen.BaseScreen
 import com.unciv.ui.screens.savescreens.LoadGameScreen
 import com.unciv.ui.screens.victoryscreen.VictoryScreen
@@ -43,6 +44,17 @@ class WorldScreenMenuPopup(
             2 * prefWidth > maxPopupWidth ||  // Very coarse: Assume width of translated "Main menu" is representative
             buttonCount * (prefHeight - emptyPrefHeight) + emptyPrefHeight < maxPopupHeight
         firstCell.nextColumn()
+
+        // EXPERIMENTAL multiplayer-v3: surface the relay Room ID right in the in-game menu so the host
+        // can re-share it any time. It is also copied to the clipboard once on game start, but that is
+        // one-shot; here the button label IS the id and tapping it re-copies it. Both host and joiner
+        // hold the room id, so show it whenever this is a v3 game.
+        val v3RoomId = worldScreen.game.v3GameManager?.roomId
+        if (v3RoomId != null)
+            addButton("Room ID: $v3RoomId") {
+                Gdx.app.clipboard.contents = v3RoomId
+                ToastPopup("Room ID copied to clipboard: [$v3RoomId]", worldScreen)
+            }.nextColumn()
 
         addButton("Civilopedia", KeyboardBinding.Civilopedia) {
             close()
