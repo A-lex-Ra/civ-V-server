@@ -11,6 +11,11 @@ private const val PREVIEW_SUFFIX = "_Preview"
 /**
  * Transition helper that emulates file storage behavior using the API v2
  */
+@Deprecated(
+    "Legacy 'apiv2' (runciv-style REST) file-storage shim — abandoned, unused dead code, NOT related " +
+        "to the current multiplayer v3 despite the name. See com.unciv.logic.multiplayer.v3."
+)
+@Suppress("DEPRECATION")
 class ApiV2FileStorageEmulator(private val api: ApiV2) : FileStorage {
 
     private suspend fun saveGameData(gameId: String, data: String) {

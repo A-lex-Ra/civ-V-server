@@ -38,6 +38,11 @@ private val FILE_UPDATE_THROTTLE_PERIOD = Duration.ofSeconds(60)
  *
  * See the file of [com.unciv.logic.multiplayer.HasMultiplayerGameName] for all available [EventBus] events.
  */
+@Deprecated(
+    "Legacy v1 file/Dropbox-based multiplayer. Superseded by the authoritative relay-based " +
+        "multiplayer v3 (com.unciv.logic.multiplayer.v3). Still used by the classic async turn-based " +
+        "mode; prefer v3 for new work."
+)
 class Multiplayer {
     /** Handles SERVER DATA only */
     val multiplayerServer = MultiplayerServer()

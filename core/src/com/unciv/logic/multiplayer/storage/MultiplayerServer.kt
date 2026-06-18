@@ -23,6 +23,11 @@ import io.ktor.http.*
  * @see UncivGame.settings.multiplayer.server
  */
 @Suppress("RedundantSuspendModifier") // Methods can take a long time, so force users to use them in a coroutine to not get ANRs on Android
+@Deprecated(
+    "Legacy v1 file/Dropbox-based multiplayer server access. Superseded by the authoritative " +
+        "relay-based multiplayer v3 (com.unciv.logic.multiplayer.v3). Still used by the classic async " +
+        "turn-based mode; prefer v3 for new work."
+)
 class MultiplayerServer(
     val fileStorageIdentifier: String? = null,
     private var authenticationHeader: Map<String, String>? = null

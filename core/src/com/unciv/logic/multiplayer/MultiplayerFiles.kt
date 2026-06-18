@@ -11,6 +11,11 @@ import java.time.Instant
 import java.util.*
 
 /** Files that are stored locally */
+@Deprecated(
+    "Legacy v1 local-file multiplayer storage. Superseded by the authoritative relay-based " +
+        "multiplayer v3 (com.unciv.logic.multiplayer.v3). Still used by the classic async turn-based " +
+        "mode; prefer v3 for new work."
+)
 class MultiplayerFiles {
     internal val files = UncivGame.Current.files
     internal val savedGames: MutableMap<FileHandle, MultiplayerGamePreview> = Collections.synchronizedMap(mutableMapOf())

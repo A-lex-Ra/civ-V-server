@@ -43,6 +43,11 @@ import kotlinx.serialization.json.Json
  * determined by that function:
  * @see [Multiplayer.determineServerAPI]
  */
+@Deprecated(
+    "Legacy multiplayer server-API detection (APIv0 Dropbox / APIv1 UncivServer / APIv2 runciv REST). " +
+        "NOT related to the current multiplayer v3 despite the 'APIv2' name. Dead, unused code kept " +
+        "only for reference; see com.unciv.logic.multiplayer.v3 for the active relay multiplayer."
+)
 enum class ApiVersion {
     APIv0, APIv1, APIv2;
 

@@ -33,6 +33,10 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * abstracts HTTP endpoint names from other modules in this package.
  * Use the [ApiV2] class for public methods to interact with the server.
  */
+@Deprecated(
+    "Legacy 'apiv2' (runciv-style REST) HTTP wrapper — abandoned, unused dead code, NOT related to " +
+        "the current multiplayer v3 despite the name. See com.unciv.logic.multiplayer.v3."
+)
 open class ApiV2Wrapper(baseUrl: String) {
     private val baseUrlImpl: String = if (baseUrl.endsWith("/")) baseUrl else ("$baseUrl/")
     private val baseServer = URLBuilder(baseUrl).apply {

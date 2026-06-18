@@ -38,6 +38,11 @@ import kotlin.time.Duration
 /**
  * Main class to interact with multiplayer servers implementing [ApiVersion.ApiV2]
  */
+@Deprecated(
+    "Legacy 'apiv2' (runciv-style REST) multiplayer client — abandoned, unused dead code, and NOT " +
+        "related to the current multiplayer v3 despite the name. Kept only for reference; do not " +
+        "build on it. See com.unciv.logic.multiplayer.v3 for the active relay-based multiplayer."
+)
 class ApiV2(private val baseUrl: String) : ApiV2Wrapper(baseUrl), Disposable {
 
     /** Cache the result of the last server API compatibility check */
