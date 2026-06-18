@@ -330,14 +330,14 @@ class BattleTable(val worldScreen: WorldScreen) : Table() {
         defender: ICombatant,
         attackableTile: AttackableTile
     ) {
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the attack intent through the authoritative
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the attack intent through the authoritative
         // GameSession. The attacker is keyed by acting civ + its CURRENT tile
         // (CommandExecutor.executeAttackUnit), so we capture it BEFORE movePreparingAttack below
         // may move a melee attacker. Only unit attackers (melee/ranged) are routed; city bombards
         // (CityCombatant) are not modelled by this command. We then FALL THROUGH to the local
         // attack below for optimistic feedback; the next authoritative PlayerView reconciles. Gate
         // only on v2 != null (isOnlineMultiplayer is false for v2).
-        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        val v2 = com.unciv.UncivGame.Current.v3GameManager
         if (v2 != null && attacker is MapUnitCombatant) {
             val attackerTile = attacker.getTile()
             val targetTile = attackableTile.tileToAttack

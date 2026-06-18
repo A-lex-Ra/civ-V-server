@@ -42,8 +42,8 @@ class GameParameters : IsPartOfGameInfoSerialization { // Default values are the
     // Multiplayer parameters
     var isOnlineMultiplayer = false
     /**
-     * EXPERIMENTAL / PREVIEW (multiplayer-v2). When set, the game is hosted through the
-     * authoritative command-in / filtered-view-out netcode (docs/multiplayer-v2.md) instead of the
+     * EXPERIMENTAL / PREVIEW (multiplayer-v3). When set, the game is hosted through the
+     * authoritative command-in / filtered-view-out netcode (docs/multiplayer-v3.md) instead of the
      * classic PBEM file-store path. This flag is **additive and strictly behind a UI toggle**; the
      * classic [isOnlineMultiplayer] path is unchanged.
      *
@@ -53,7 +53,7 @@ class GameParameters : IsPartOfGameInfoSerialization { // Default values are the
      * download, MultiplayerStatusButton, etc.) engage. v2 is selected solely by this flag; the two
      * flags are mutually exclusive at the UI (turning one on turns the other off).
      */
-    var isMultiplayerV2 = false
+    var isMultiplayerV3 = false
     var multiplayerServerUrl: String? = null
     var anyoneCanSpectate = true
     /** After this amount of minutes, anyone can choose to 'skip turn' of the current player to keep the game going */
@@ -98,7 +98,7 @@ class GameParameters : IsPartOfGameInfoSerialization { // Default values are the
         parameters.showVictoryStats = showVictoryStats
         parameters.showDemographics = showDemographics
         parameters.isOnlineMultiplayer = isOnlineMultiplayer
-        parameters.isMultiplayerV2 = isMultiplayerV2
+        parameters.isMultiplayerV3 = isMultiplayerV3
         parameters.multiplayerServerUrl = multiplayerServerUrl
         parameters.anyoneCanSpectate = anyoneCanSpectate
         parameters.baseRuleset = baseRuleset
@@ -117,7 +117,7 @@ class GameParameters : IsPartOfGameInfoSerialization { // Default values are the
             if (randomNumberOfCityStates) yield("Random number of City-States: $minNumberOfCityStates..$maxNumberOfCityStates")
             else yield("$numberOfCityStates CS")
             if (isOnlineMultiplayer) yield("Online Multiplayer")
-            if (isMultiplayerV2) yield("Authoritative Multiplayer (experimental)")
+            if (isMultiplayerV3) yield("Authoritative Multiplayer (experimental)")
             if (noBarbarians) yield("No barbs")
             if (ragingBarbarians) yield("Raging barbs")
             if (oneCityChallenge) yield("OCC")

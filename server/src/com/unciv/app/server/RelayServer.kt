@@ -19,7 +19,7 @@ import kotlinx.coroutines.isActive
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Room-based WebSocket relay for multiplayer v2.
+ * Room-based WebSocket relay for multiplayer v3.
  *
  * The relay is deliberately **dumb about the game**: it only manages room membership, presence
  * and the host role, and forwards opaque [com.unciv.network.game.GameFrame] payloads between the
@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
  * [com.unciv.network.serialization.relayJson] configuration (installed on the WebSockets plugin).
  *
  * Phase 1: rooms, routing and host-role assignment. Host migration is deferred (see
- * docs/multiplayer-v2.md §7); authority/turn logic comes later.
+ * docs/multiplayer-v3.md §7); authority/turn logic comes later.
  */
 class RelayServer {
 
@@ -174,7 +174,7 @@ class RelayServer {
         val leavingUserId: UserId?
         synchronized(lock) {
             leavingUserId = room.peers.remove(session)?.userId
-            // Host migration is deferred (see docs/multiplayer-v2.md §7): a departing host just
+            // Host migration is deferred (see docs/multiplayer-v3.md §7): a departing host just
             // clears the host slot; re-election/HostChanged is not implemented yet.
             if (room.hostSession === session) room.hostSession = null
             if (room.peers.isEmpty()) rooms.remove(room.roomId)

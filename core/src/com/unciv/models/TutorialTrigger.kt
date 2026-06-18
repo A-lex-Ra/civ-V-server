@@ -49,6 +49,6 @@ enum class TutorialTrigger(val value: String, val isCivilopedia: Boolean = !valu
     WeLoveTheKingDay("We_Love_The_King_Day"),
     CityTileBlockade("City_Tile_Blockade"),
     CityBlockade("City_Blockade"),
-    /** EXPERIMENTAL / PREVIEW — shown once when a multiplayer-v2 (authoritative) game is opened. */
+    /** EXPERIMENTAL / PREVIEW — shown once when a multiplayer-v3 (authoritative) game is opened. */
     AuthoritativeMultiplayer("Authoritative Multiplayer")
 }

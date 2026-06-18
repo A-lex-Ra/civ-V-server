@@ -670,12 +670,12 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
 
         SoundPlayer.play(getConstructionSound(construction))
 
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the set-production intent through the
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the set-production intent through the
         // authoritative GameSession. The city is keyed by its center tile + construction name
         // (CommandExecutor.executeSetCityProduction). We then FALL THROUGH to the local
         // addToQueue below for optimistic feedback; the next authoritative PlayerView reconciles.
         // Gate only on v2 != null (isOnlineMultiplayer is false for v2).
-        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        val v2 = com.unciv.UncivGame.Current.v3GameManager
         if (v2 != null) {
             v2.sendCommand(com.unciv.network.command.GameCommand.SetCityProduction(
                 cityX = cityScreen.city.location.x, cityY = cityScreen.city.location.y,

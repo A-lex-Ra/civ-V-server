@@ -178,10 +178,10 @@ private class UncivServerRunner : CliktCommand() {
         help = "Enable Authentication"
     ).flag("-no-chat", default = true)
 
-    private val relayV2Enabled by option(
+    private val relayV3Enabled by option(
         "-r", "-relay",
         envvar = "UncivServerRelay",
-        help = "Enable the multiplayer-v2 WebSocket relay (/relay)"
+        help = "Enable the multiplayer-v3 WebSocket relay (/relay)"
     ).flag("-no-relay", default = true)
 
     private val identifyOperators by option(
@@ -196,7 +196,7 @@ private class UncivServerRunner : CliktCommand() {
         isAliveInfo = IsAliveInfo(
             authVersion = if (authV1Enabled) 1 else 0,
             chatVersion = if (chatV1Enabled) 1 else 0,
-            relayVersion = if (relayV2Enabled) Protocol.VERSION else 0,
+            relayVersion = if (relayV3Enabled) Protocol.VERSION else 0,
         )
         serverRun(port, folder)
     }
@@ -273,11 +273,11 @@ private class UncivServerRunner : CliktCommand() {
                 }
             }
 
-            if (chatV1Enabled || relayV2Enabled) install(WebSockets) {
+            if (chatV1Enabled || relayV3Enabled) install(WebSockets) {
                 pingPeriod = 30.seconds
                 timeout = 60.seconds
                 maxFrameSize = Long.MAX_VALUE
-                // Shared with the multiplayer-v2 relay; uses the same "type" discriminator
+                // Shared with the multiplayer-v3 relay; uses the same "type" discriminator
                 // convention as the chat protocol (see com.unciv.network.serialization.relayJson).
                 contentConverter = KotlinxWebsocketSerializationConverter(relayJson)
             }
@@ -291,7 +291,7 @@ private class UncivServerRunner : CliktCommand() {
                 // Multiplayer-v2 relay: room-based routing of opaque game frames. Membership only,
                 // no game logic. Kept outside the `authenticate` block as it manages its own
                 // identity via the Hello handshake (auth hardening lands in a later phase).
-                if (relayV2Enabled) relayRoutes(relayServer)
+                if (relayV3Enabled) relayRoutes(relayServer)
 
                 @OptIn(ExperimentalUuidApi::class) authenticate {
                     put("/files/{fileName}") {

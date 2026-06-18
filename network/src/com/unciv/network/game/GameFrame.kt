@@ -84,7 +84,7 @@ sealed interface GameFrame {
 
     /**
      * Client -> host: the requester wants a fresh full snapshot — used by a (re)connecting/desynced
-     * client to re-sync from the authority (docs/multiplayer-v2.md §5, §10 Phase 6). The authority
+     * client to re-sync from the authority (docs/multiplayer-v3.md §5, §10 Phase 6). The authority
      * answers with a directed [PlayerView] reflecting the *current* canonical state for [playerId],
      * projected mid-turn on demand (not only at turn boundaries).
      *
@@ -104,7 +104,7 @@ sealed interface GameFrame {
 
     /**
      * Host -> a SPECIFIC client: that player's full **visibility-filtered** snapshot of the game
-     * (see docs/multiplayer-v2.md §5). The authority projects the canonical `GameInfo` down to what
+     * (see docs/multiplayer-v3.md §5). The authority projects the canonical `GameInfo` down to what
      * this player may legally see, serialises it to JSON and gzips it into [gzippedFilteredGameInfo].
      *
      * Because the snapshot is per-player and redacted, it must be delivered **directed**

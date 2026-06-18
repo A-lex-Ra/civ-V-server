@@ -45,9 +45,9 @@ class UnitActionsTable(val worldScreen: WorldScreen) : Table() {
         /** Padding between and to the left of the Buttons */
         private const val padBetweenButtons = 2f
 
-        /** EXPERIMENTAL / PREVIEW (multiplayer-v2): the simple unit actions that are routed to the
+        /** EXPERIMENTAL / PREVIEW (multiplayer-v3): the simple unit actions that are routed to the
          *  authority as a [com.unciv.network.command.GameCommand.GenericUnitAction]. These are the
-         *  ones [com.unciv.logic.multiplayer.v2.command.CommandExecutor] applies headlessly; richer
+         *  ones [com.unciv.logic.multiplayer.v3.command.CommandExecutor] applies headlessly; richer
          *  actions (FoundCity, Promote, Attack, Move, …) are routed at their own dedicated sites. */
         private val v2RoutedSimpleActions = setOf(
             UnitActionType.Fortify,
@@ -225,7 +225,7 @@ class UnitActionsTable(val worldScreen: WorldScreen) : Table() {
     }
 
     private fun activateAction(unitAction: UnitAction, unit: MapUnit) {
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the simple unit-action intent through the
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the simple unit-action intent through the
         // authoritative GameSession. The unit is keyed by acting civ + its current tile
         // (CommandExecutor.executeGenericUnitAction). We only route the simple actions the executor
         // handles headlessly (Fortify/Sleep/Explore/Stop*); FoundCity, Promote, Attack, Move, etc.
@@ -233,7 +233,7 @@ class UnitActionsTable(val worldScreen: WorldScreen) : Table() {
         // mapping. We then FALL THROUGH to the local invoke below for optimistic feedback; the next
         // authoritative PlayerView reconciles. Gate only on v2 != null (isOnlineMultiplayer is
         // false for v2).
-        val v2 = UncivGame.Current.v2GameManager
+        val v2 = UncivGame.Current.v3GameManager
         if (v2 != null && unitAction.type in v2RoutedSimpleActions) {
             v2.sendCommand(com.unciv.network.command.GameCommand.GenericUnitAction(
                 x = unit.currentTile.position.x, y = unit.currentTile.position.y,

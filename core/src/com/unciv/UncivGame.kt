@@ -68,12 +68,12 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
     lateinit var files: UncivFiles
 
     /**
-     * EXPERIMENTAL / PREVIEW — the active multiplayer-v2 game lifecycle (authoritative netcode,
-     * docs/multiplayer-v2.md), or `null` when no v2 game is running. Set when a v2 game is
+     * EXPERIMENTAL / PREVIEW — the active multiplayer-v3 game lifecycle (authoritative netcode,
+     * docs/multiplayer-v3.md), or `null` when no v2 game is running. Set when a v2 game is
      * hosted/joined; the WorldScreen routes the local player's intents through it and subscribes to
      * its view refresh. Strictly additive: the classic [onlineMultiplayer] path is unaffected.
      */
-    var v2GameManager: com.unciv.logic.multiplayer.v2.V2GameManager? = null
+    var v3GameManager: com.unciv.logic.multiplayer.v3.V3GameManager? = null
 
     var isTutorialTaskCollapsed = false
 
@@ -225,11 +225,11 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
             worldScreen = newWorldScreen
 
             val moreThanOnePlayer = newGameInfo.civilizations.count { it.playerType == PlayerType.Human } > 1
-            // The hand-the-device "ready?" gate is for local hotseat only. Authoritative multiplayer-v2
+            // The hand-the-device "ready?" gate is for local hotseat only. Authoritative multiplayer-v3
             // (option A) is NOT online-MP (isOnlineMultiplayer stays false) yet each process controls a
             // single player and renders its own filtered view — without excluding it here, every v2
             // view refresh would bounce the player to a hotseat PlayerReadyScreen for the OTHER humans.
-            val isHotseat = !newGameInfo.gameParameters.isOnlineMultiplayer && !newGameInfo.gameParameters.isMultiplayerV2
+            val isHotseat = !newGameInfo.gameParameters.isOnlineMultiplayer && !newGameInfo.gameParameters.isMultiplayerV3
             val screenToShow = if (moreThanOnePlayer && isHotseat) {
                 PlayerReadyScreen(newWorldScreen)
             } else {
@@ -472,9 +472,9 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
         if (curGameInfo != null) {
             files.autosaves.requestAutoSaveUnCloned(curGameInfo) // Can save gameInfo directly because the user can't modify it on the MainMenuScreen
         }
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): tear down any active v2 game when leaving to the menu.
-        v2GameManager?.close()
-        v2GameManager = null
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): tear down any active v2 game when leaving to the menu.
+        v3GameManager?.close()
+        v3GameManager = null
         val mainMenuScreen = MainMenuScreen()
         pushScreen(mainMenuScreen)
         return mainMenuScreen

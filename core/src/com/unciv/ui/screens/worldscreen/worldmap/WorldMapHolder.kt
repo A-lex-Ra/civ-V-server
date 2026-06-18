@@ -314,7 +314,7 @@ class WorldMapHolder(
             }
 
 
-            // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): every v2 process — joiner AND host —
+            // EXPERIMENTAL / PREVIEW (multiplayer-v3, option A): every v2 process — joiner AND host —
             // routes its intent through the authoritative GameSession. We send a MoveUnit *intent*
             // (the host injects it in-process, the joiner over the relay); the authority validates +
             // applies it on the canonical state. We then FALL THROUGH to the normal local move below
@@ -323,11 +323,11 @@ class WorldMapHolder(
             // tile (CommandExecutor.executeMoveUnit) and applies a single-turn move, so we send the
             // same per-turn destination computed above. isOnlineMultiplayer is false for v2, so the
             // local-move path below does no v1 upload.
-            val v2 = UncivGame.Current.v2GameManager
+            val v2 = UncivGame.Current.v3GameManager
             if (v2 != null) {
                 val fromTile = selectedUnit.currentTile
                 if (selectedUnit.isPreparingParadrop()) {
-                    // EXPERIMENTAL / PREVIEW (multiplayer-v2): a preparing-paradrop unit reaches this
+                    // EXPERIMENTAL / PREVIEW (multiplayer-v3): a preparing-paradrop unit reaches this
                     // path too, but a paradrop is NOT a normal move (the authority's move gate would
                     // reject the airborne destination). Route it as a dedicated Paradrop intent keyed
                     // by acting civ + the unit's current tile + the clicked destination tile
@@ -443,11 +443,11 @@ class WorldMapHolder(
     internal fun swapMoveUnitToTargetTile(selectedUnit: MapUnit, targetTile: Tile) {
         markUnitMoveTutorialComplete(selectedUnit)
 
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the unit-swap intent to the authority, keyed
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the unit-swap intent to the authority, keyed
         // by acting civ + the unit's current tile + the swap-partner tile
         // (CommandExecutor.executeSwapUnits). Captured before the local swapMoveToTile moves the units;
         // gate only on v2 != null, then FALL THROUGH to the local swap for optimistic feedback.
-        val v2 = UncivGame.Current.v2GameManager
+        val v2 = UncivGame.Current.v3GameManager
         if (v2 != null) {
             val fromTile = selectedUnit.currentTile
             v2.sendCommand(com.unciv.network.command.GameCommand.SwapUnits(

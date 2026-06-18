@@ -110,7 +110,7 @@ class GameOptionsTable(
         val checkboxTable = Table().apply { defaults().left().pad(2.5f) }
         val selectBoxTable = Table()
         checkboxTable.addIsOnlineMultiplayerCheckbox()
-        checkboxTable.addIsMultiplayerV2Checkbox()
+        checkboxTable.addIsMultiplayerV3Checkbox()
         if (gameParameters.isOnlineMultiplayer){
             checkboxTable.addAnyoneCanSpectateCheckbox()
             selectBoxTable.addDurationSelectBox("Time until skip turn:", GameParameters::minutesUntilSkipTurn, 1, 0, 0)
@@ -189,7 +189,7 @@ class GameOptionsTable(
             addCheckbox("Online Multiplayer", gameParameters.isOnlineMultiplayer, lockable = false)
             { shouldUseMultiplayer ->
                 gameParameters.isOnlineMultiplayer = shouldUseMultiplayer
-                if (shouldUseMultiplayer) gameParameters.isMultiplayerV2 = false // mutually exclusive
+                if (shouldUseMultiplayer) gameParameters.isMultiplayerV3 = false // mutually exclusive
                 updatePlayerPickerTable("")
                 if (shouldUseMultiplayer) {
                     MultiplayerHelpers.showDropboxWarning(previousScreen as BaseScreen)
@@ -198,13 +198,13 @@ class GameOptionsTable(
             }
 
     /**
-     * EXPERIMENTAL / PREVIEW (multiplayer-v2). Selecting it turns the classic Online-Multiplayer
-     * toggle OFF — the two MP modes are mutually exclusive (see [GameParameters.isMultiplayerV2]).
+     * EXPERIMENTAL / PREVIEW (multiplayer-v3). Selecting it turns the classic Online-Multiplayer
+     * toggle OFF — the two MP modes are mutually exclusive (see [GameParameters.isMultiplayerV3]).
      */
-    private fun Table.addIsMultiplayerV2Checkbox() =
-            addCheckbox("Authoritative Multiplayer (experimental)", gameParameters.isMultiplayerV2, lockable = false)
+    private fun Table.addIsMultiplayerV3Checkbox() =
+            addCheckbox("Authoritative Multiplayer (experimental)", gameParameters.isMultiplayerV3, lockable = false)
             { useV2 ->
-                gameParameters.isMultiplayerV2 = useV2
+                gameParameters.isMultiplayerV3 = useV2
                 if (useV2) gameParameters.isOnlineMultiplayer = false
                 updatePlayerPickerTable("")
                 update()

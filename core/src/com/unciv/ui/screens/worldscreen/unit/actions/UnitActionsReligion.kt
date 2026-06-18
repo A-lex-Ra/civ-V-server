@@ -37,10 +37,10 @@ object UnitActionsReligion {
             )
             else UnitActionType.FoundReligion.value,
             action = {
-                // EXPERIMENTAL / PREVIEW (multiplayer-v2): the prophet is about to be consumed and the
+                // EXPERIMENTAL / PREVIEW (multiplayer-v3): the prophet is about to be consumed and the
                 // belief picker opens later, so stash the prophet's tile now — the picker confirm keys
-                // the atomic FoundReligion command with it (see V2GameManager.pendingProphetTile).
-                com.unciv.UncivGame.Current.v2GameManager?.pendingProphetTile = unit.currentTile.position
+                // the atomic FoundReligion command with it (see V3GameManager.pendingProphetTile).
+                com.unciv.UncivGame.Current.v3GameManager?.pendingProphetTile = unit.currentTile.position
                 unit.civ.religionManager.foundReligion(unit)
 
                 if (hasActionModifiers) UnitActionModifiers.activateSideEffects(unit, unique)
@@ -71,9 +71,9 @@ object UnitActionsReligion {
             )
             else baseTitle,
             action = {
-                // EXPERIMENTAL / PREVIEW (multiplayer-v2): stash the prophet's tile before it is
+                // EXPERIMENTAL / PREVIEW (multiplayer-v3): stash the prophet's tile before it is
                 // consumed; the belief picker confirm keys the atomic EnhanceReligion command with it.
-                com.unciv.UncivGame.Current.v2GameManager?.pendingProphetTile = unit.currentTile.position
+                com.unciv.UncivGame.Current.v3GameManager?.pendingProphetTile = unit.currentTile.position
                 unit.civ.religionManager.useProphetForEnhancingReligion(unit)
                 if (hasActionModifiers) UnitActionModifiers.activateSideEffects(unit, unique)
                 else unit.consume()
@@ -107,11 +107,11 @@ object UnitActionsReligion {
             UnitActionType.SpreadReligion, useFrequency,
             title = title,
             action = {
-                // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the spread-religion intent to the
+                // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the spread-religion intent to the
                 // authority. The missionary acts on its own current tile, which is the target city's
                 // center, so unit tile == target-city tile (CommandExecutor.executeSpreadReligion).
                 // Gate only on v2 != null, then FALL THROUGH to the local side effects.
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.SpreadReligion(
                         unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y,
@@ -167,11 +167,11 @@ object UnitActionsReligion {
             UnitActionType.RemoveHeresy, useFrequency,
             title = title,
             action = {
-                // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the remove-heresy intent to the
+                // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the remove-heresy intent to the
                 // authority. The inquisitor acts on its own current tile, which is the target (own)
                 // city's center, so unit tile == target-city tile
                 // (CommandExecutor.executeRemoveHeresy). Gate only on v2 != null, then FALL THROUGH.
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.RemoveHeresy(
                         unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y,

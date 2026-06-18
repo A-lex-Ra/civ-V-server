@@ -77,13 +77,13 @@ class ReligiousBeliefsPickerScreen (
             if (pickIconAndName) "Choose a Religion"
             else "Enhance [${currentReligion.getReligionDisplayName()}]"
         ) {
-            // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the founding/enhancing intent to the
+            // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the founding/enhancing intent to the
             // authority as a single atomic command keyed by the founding prophet's tile, which the
-            // Found/Enhance unit action stashed in V2GameManager.pendingProphetTile (the prophet is
+            // Found/Enhance unit action stashed in V3GameManager.pendingProphetTile (the prophet is
             // consumed before this picker opens). The authority replays the whole flow (consume the
             // still-alive prophet on canonical, set name + choose beliefs). Send BEFORE the local apply
             // below (which mutates religionState), then FALL THROUGH for optimistic local feedback.
-            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            val v2 = com.unciv.UncivGame.Current.v3GameManager
             if (v2 != null) {
                 val prophetTile = v2.pendingProphetTile
                 if (prophetTile != null) {

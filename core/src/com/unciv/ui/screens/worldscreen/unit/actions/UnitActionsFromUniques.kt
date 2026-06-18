@@ -64,13 +64,13 @@ object UnitActionsFromUniques {
             if (unit.civ.playerType != PlayerType.AI)
                 UncivGame.Current.settings.addCompletedTutorialTask("Found city")
 
-            // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the found-city intent through the
+            // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the found-city intent through the
             // authoritative GameSession (host injects in-process, joiner over the relay). The
             // settler is keyed by acting civ + tile (CommandExecutor.executeFoundCity). We then
             // FALL THROUGH to the local addCity below for optimistic feedback; the next
             // authoritative PlayerView reconciles. Gate only on v2 != null (isOnlineMultiplayer is
             // false for v2).
-            val v2 = UncivGame.Current.v2GameManager
+            val v2 = UncivGame.Current.v3GameManager
             if (v2 != null && unit.civ.playerType != PlayerType.AI) {
                 v2.sendCommand(com.unciv.network.command.GameCommand.FoundCity(
                     x = tile.position.x, y = tile.position.y

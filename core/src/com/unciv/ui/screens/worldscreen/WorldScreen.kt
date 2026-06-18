@@ -208,14 +208,14 @@ class WorldScreen(
             }
         }
 
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): every v2 process — joiner AND host — is a
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3, option A): every v2 process — joiner AND host — is a
         // client of the one authoritative GameSession. It renders its own per-player filtered view;
         // when the authority pushes a fresh PlayerView (turn advanced, or another player ended), the
         // manager has already decoded it into a new filtered GameInfo, so we swap that in through the
         // same screen-reload path nextTurn uses (UncivGame.loadGame). The host's authority loop runs
         // separately on the canonical state; this WorldScreen never touches it directly.
         run {
-            val v2 = UncivGame.Current.v2GameManager
+            val v2 = UncivGame.Current.v3GameManager
             if (v2 != null) {
                 // Simultaneous human phase: this player may act unless they have already ended their
                 // turn and are waiting for the round to resolve (the latch clears when a later-turn
@@ -504,8 +504,8 @@ class WorldScreen(
      * Whether the game is over from THIS screen's perspective — used by [update] to decide whether to
      * show the [VictoryScreen].
      *
-     * EXPERIMENTAL / PREVIEW (multiplayer-v2): a v2 WorldScreen renders a per-player
-     * **visibility-filtered** view (option A — see [com.unciv.logic.multiplayer.v2.visibility.PlayerViewProjector]),
+     * EXPERIMENTAL / PREVIEW (multiplayer-v3): a v2 WorldScreen renders a per-player
+     * **visibility-filtered** view (option A — see [com.unciv.logic.multiplayer.v3.visibility.PlayerViewProjector]),
      * on which the engine's victory evaluation would FALSE-POSITIVE: enemy cities the local player
      * has not explored are stripped from the projection, so [GameInfo.checkForVictory]'s domination
      * check (which re-runs `getVictoryTypeAchieved` per civ) sees the local player owning every
@@ -515,16 +515,16 @@ class WorldScreen(
      * destructive — it sets `victoryData` — which would corrupt the client's view to boot.)
      */
     private fun isGameOver(): Boolean =
-        if (gameInfo.gameParameters.isMultiplayerV2) gameInfo.victoryData != null
+        if (gameInfo.gameParameters.isMultiplayerV3) gameInfo.victoryData != null
         else gameInfo.checkForVictory()
 
     private fun displayTutorialsOnUpdate() {
 
         displayTutorial(TutorialTrigger.Introduction)
 
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): explain the authoritative mode the first time a
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): explain the authoritative mode the first time a
         // v2 game is opened. Maps to the "Authoritative Multiplayer" Civilopedia/Tutorials entry.
-        displayTutorial(TutorialTrigger.AuthoritativeMultiplayer) { gameInfo.gameParameters.isMultiplayerV2 }
+        displayTutorial(TutorialTrigger.AuthoritativeMultiplayer) { gameInfo.gameParameters.isMultiplayerV3 }
 
         displayTutorial(TutorialTrigger.EnemyCityNeedsConqueringWithMeleeUnit) {
             viewingCiv.diplomacy.values.asSequence()
@@ -623,13 +623,13 @@ class WorldScreen(
     }
 
     fun nextTurn() {
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): every v2 process — joiner AND host — sends
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3, option A): every v2 process — joiner AND host — sends
         // an EndTurn *intent* to the authoritative GameSession rather than running inter-turn
         // processing locally. In the simultaneous model this marks the player done; the authority
         // advances the round only once every human has ended, then pushes fresh per-player filtered
         // PlayerViews (swapped in by the onView hook wired in init). The host's own intent is injected
-        // straight into its in-process session (no socket round-trip) — see V2GameManager.sendEndTurn.
-        val v2 = UncivGame.Current.v2GameManager
+        // straight into its in-process session (no socket round-trip) — see V3GameManager.sendEndTurn.
+        val v2 = UncivGame.Current.v3GameManager
         if (v2 != null) {
             isPlayersTurn = false
             shouldUpdate = true

@@ -29,7 +29,7 @@ class CitizenManagementTable(val cityScreen: CityScreen) : Table(BaseScreen.skin
         if (cityScreen.canCityBeChanged()) {
             resetCell.touchable = Touchable.enabled
             resetCell.onActivation(binding = KeyboardBinding.ResetCitizens) {
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.ResetCitizens(city.location.x, city.location.y))
                 }
@@ -49,7 +49,7 @@ class CitizenManagementTable(val cityScreen: CityScreen) : Table(BaseScreen.skin
         if (cityScreen.canCityBeChanged()) {
             avoidCell.touchable = Touchable.enabled
             avoidCell.onActivation(binding = KeyboardBinding.AvoidGrowth) {
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.ToggleAvoidGrowth(city.location.x, city.location.y))
                 }
@@ -86,7 +86,7 @@ class CitizenManagementTable(val cityScreen: CityScreen) : Table(BaseScreen.skin
                 // If we bind both, both are executed - so only add the one here that re-applies the current focus
                 val binding = if (city.getCityFocus() == focus) focus.binding else KeyboardBinding.None
                 cell.onActivation(binding = binding) {
-                    val v2 = com.unciv.UncivGame.Current.v2GameManager
+                    val v2 = com.unciv.UncivGame.Current.v3GameManager
                     if (v2 != null) {
                         v2.sendCommand(com.unciv.network.command.GameCommand.SetCityFocus(city.location.x, city.location.y, focus.name))
                     }

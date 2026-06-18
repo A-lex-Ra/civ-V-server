@@ -309,7 +309,7 @@ class CityScreen(
             val annexCityButton = "Annex city".toTextButton()
             annexCityButton.labelCell.pad(10f)
             annexCityButton.onClick {
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.AnnexCity(city.location.x, city.location.y))
                 }
@@ -322,7 +322,7 @@ class CityScreen(
             val razeCityButton = "Raze city".toTextButton()
             razeCityButton.labelCell.pad(10f)
             razeCityButton.onClick {
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.RazeCity(city.location.x, city.location.y, true))
                 }
@@ -337,7 +337,7 @@ class CityScreen(
             val stopRazingCityButton = "Stop razing city".toTextButton()
             stopRazingCityButton.labelCell.pad(10f)
             stopRazingCityButton.onClick {
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.RazeCity(city.location.x, city.location.y, false))
                 }
@@ -462,7 +462,7 @@ class CityScreen(
             restoreDefault = { update() }
         ) {
             SoundPlayer.play(UncivSound.Coin)
-            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            val v2 = com.unciv.UncivGame.Current.v3GameManager
             if (v2 != null) {
                 v2.sendCommand(com.unciv.network.command.GameCommand.BuyTile(
                     city.location.x, city.location.y, selectedTile.position.x, selectedTile.position.y))
@@ -487,7 +487,7 @@ class CityScreen(
             // Only a not-yet-locked worked tile actually changes lock state here; the executor's
             // ToggleLockedTile would otherwise unlock an already-locked tile on the authority.
             if (!city.lockedTiles.contains(tile.position)) {
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.ToggleLockedTile(
                         city.location.x, city.location.y, tile.position.x, tile.position.y))

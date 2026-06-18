@@ -336,10 +336,10 @@ class EspionageOverviewScreen(val civInfo: Civilization, val worldScreen: WorldS
         }
 
         private fun move() {
-            // multiplayer-v2: route the spy move to the authority before the local apply, following
+            // multiplayer-v3: route the spy move to the authority before the local apply, following
             // the MoveUnit template (gate on v2 != null; send; FALL THROUGH). A null location is the
             // Spy Hideout — use the executor's HIDEOUT sentinel for both target coords.
-            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            val v2 = com.unciv.UncivGame.Current.v3GameManager
             if (v2 != null) {
                 val targetX = location?.location?.x ?: com.unciv.network.command.GameCommand.MoveSpy.HIDEOUT
                 val targetY = location?.location?.y ?: com.unciv.network.command.GameCommand.MoveSpy.HIDEOUT
@@ -385,11 +385,11 @@ class EspionageOverviewScreen(val civInfo: Civilization, val worldScreen: WorldS
 
         override fun clickHandler() {
             val spy = selectedSpy!!
-            // multiplayer-v2: route the spy-action intent to the authority before the local apply,
+            // multiplayer-v3: route the spy-action intent to the authority before the local apply,
             // following the MoveUnit template (gate on v2 != null; send; FALL THROUGH). These are the
             // only player-settable spy actions (Coup / CounterIntelligence); the wire carries the
             // SpyAction enum constant name.
-            val v2 = com.unciv.UncivGame.Current.v2GameManager
+            val v2 = com.unciv.UncivGame.Current.v3GameManager
             if (!isCurrentAction) {
                 ConfirmPopup(this@EspionageOverviewScreen,
                     "Do you want to stage a coup in [${location!!.civ.civName}] with a " +

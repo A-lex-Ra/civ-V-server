@@ -118,13 +118,13 @@ class PromotionPickerScreen private constructor(
         val path = tree.getPathTo(button.node.promotion)
         SoundPlayer.playRepeated(UncivSound.Promote, path.size.coerceAtMost(2))
 
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route each promotion intent through the
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): route each promotion intent through the
         // authoritative GameSession. The unit is keyed by acting civ + tile
         // (CommandExecutor.executePromoteUnit); the picker may apply a whole prerequisite path, so
         // we send one PromoteUnit per step in order. The local addPromotion loop below is the
         // optimistic feedback; the next authoritative PlayerView reconciles. Gate only on
         // v2 != null (isOnlineMultiplayer is false for v2).
-        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        val v2 = com.unciv.UncivGame.Current.v3GameManager
         if (v2 != null) {
             for (promotion in path)
                 v2.sendCommand(com.unciv.network.command.GameCommand.PromoteUnit(

@@ -232,10 +232,10 @@ class PlayerPickerTable(
         }
 
         // v2 (Authoritative Multiplayer) also needs per-player IDs: the host builds its
-        // `UserId -> civId` roster from them (V2GameManager.rosterFrom), so without these the roster
-        // is empty and no joiner is ever recognised. isMultiplayerV2 is mutually exclusive with
+        // `UserId -> civId` roster from them (V3GameManager.rosterFrom), so without these the roster
+        // is empty and no joiner is ever recognised. isMultiplayerV3 is mutually exclusive with
         // isOnlineMultiplayer, hence the explicit OR.
-        if ((gameParameters.isOnlineMultiplayer || gameParameters.isMultiplayerV2) && player.playerType == PlayerType.Human)
+        if ((gameParameters.isOnlineMultiplayer || gameParameters.isMultiplayerV3) && player.playerType == PlayerType.Human)
             playerTable.addPlayerTableMultiplayerControls(player)
 
         return playerTable

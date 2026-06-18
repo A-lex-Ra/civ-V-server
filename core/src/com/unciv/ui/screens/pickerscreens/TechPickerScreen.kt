@@ -122,12 +122,12 @@ class TechPickerScreen(
         }
         else civTech.techsToResearch = tempTechsToResearch
 
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2): route the choose-tech intent through the
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the choose-tech intent through the
         // authoritative GameSession. The authority plots the prerequisite path to the chosen tech
         // for the acting civ (CommandExecutor.executeChooseTech). The local assignment above is the
         // optimistic feedback; the next authoritative PlayerView reconciles. Gate only on
         // v2 != null (isOnlineMultiplayer is false for v2).
-        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        val v2 = com.unciv.UncivGame.Current.v3GameManager
         val chosenTech = selectedTech
         if (v2 != null && chosenTech != null) {
             v2.sendCommand(com.unciv.network.command.GameCommand.ChooseTech(

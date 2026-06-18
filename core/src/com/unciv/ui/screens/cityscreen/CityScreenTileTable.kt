@@ -77,7 +77,7 @@ class CityScreenTileTable(private val cityScreen: CityScreen) : Table() {
             if (selectedTile.isLocked()) {
                 val unlockButton = "Unlock".toTextButton()
                 unlockButton.onClick {
-                    val v2 = com.unciv.UncivGame.Current.v2GameManager
+                    val v2 = com.unciv.UncivGame.Current.v3GameManager
                     if (v2 != null) {
                         v2.sendCommand(com.unciv.network.command.GameCommand.ToggleLockedTile(
                             city.location.x, city.location.y, selectedTile.position.x, selectedTile.position.y))
@@ -91,7 +91,7 @@ class CityScreenTileTable(private val cityScreen: CityScreen) : Table() {
             } else {
                 val lockButton = "Lock".toTextButton()
                 lockButton.onClick {
-                    val v2 = com.unciv.UncivGame.Current.v2GameManager
+                    val v2 = com.unciv.UncivGame.Current.v3GameManager
                     if (v2 != null) {
                         v2.sendCommand(com.unciv.network.command.GameCommand.ToggleLockedTile(
                             city.location.x, city.location.y, selectedTile.position.x, selectedTile.position.y))

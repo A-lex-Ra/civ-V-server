@@ -100,7 +100,7 @@ allprojects {
     }
 }
 
-// Shared, engine-independent multiplayer-v2 wire protocol (pure Kotlin + kotlinx.serialization).
+// Shared, engine-independent multiplayer-v3 wire protocol (pure Kotlin + kotlinx.serialization).
 // Consumed by both the client (:core) and the relay (:server). Must NOT depend on the game engine.
 project(":network") {
     apply(plugin = "kotlin")
@@ -145,7 +145,7 @@ project(":server") {
         "implementation"(rootProject.libs.logback)
         "implementation"(rootProject.libs.clikt)
 
-        // Shared multiplayer-v2 wire protocol used by the relay
+        // Shared multiplayer-v3 wire protocol used by the relay
         "implementation"(project(":network"))
 
         // clikt somehow needs this
@@ -202,7 +202,7 @@ project(":core") {
 
         "api"(rootProject.libs.bundles.ktor.client)
 
-        // Shared multiplayer-v2 wire protocol (engine-independent). `api` because the v2 public
+        // Shared multiplayer-v3 wire protocol (engine-independent). `api` because the v2 public
         // surface (GameSession, CommandExecutor, RelayTransport) exposes these wire types.
         "api"(project(":network"))
     }
@@ -215,7 +215,7 @@ project(":core") {
 
         dependencies {
             "implementation"(project(":core"))
-            // For the multiplayer-v2 relay integration test (embeds the relay server)
+            // For the multiplayer-v3 relay integration test (embeds the relay server)
             "implementation"(project(":server"))
 
             "implementation"(rootProject.libs.coroutines.core)

@@ -207,14 +207,14 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
     }
 
     fun getPlayerToViewAs(): Civilization {
-        // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): EVERY v2 process — joiner AND host —
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3, option A): EVERY v2 process — joiner AND host —
         // renders its own visibility-filtered view, whose `currentPlayer` is set by the authority and
         // may not be this process's civ (during the simultaneous human phase the engine's
         // currentPlayer is just one of the active humans). So, like online MP, resolve the viewing civ
         // by the local userId rather than by currentPlayer. The host's authoritative canonical state
         // is never rendered through a WorldScreen, so this never mis-resolves there.
-        val isV2Client = gameParameters.isMultiplayerV2
-        if (!gameParameters.isOnlineMultiplayer && !isV2Client) return getCurrentPlayerCivilization() // non-online, play as human player
+        val isV3Client = gameParameters.isMultiplayerV3
+        if (!gameParameters.isOnlineMultiplayer && !isV3Client) return getCurrentPlayerCivilization() // non-online, play as human player
         val userId = UncivGame.Current.settings.multiplayer.getUserId()
 
         // Iterating on all civs, starting from the the current player, gives us the one that will have the next turn

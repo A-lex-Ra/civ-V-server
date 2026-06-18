@@ -168,7 +168,7 @@ class BuyButtonFactory(val cityScreen: CityScreen) {
     ) {
         SoundPlayer.play(stat.purchaseSound)
         val city = cityScreen.city
-        val v2 = com.unciv.UncivGame.Current.v2GameManager
+        val v2 = com.unciv.UncivGame.Current.v3GameManager
         if (v2 != null) {
             v2.sendCommand(com.unciv.network.command.GameCommand.BuyConstruction(
                 city.location.x, city.location.y, construction.name, stat.name,

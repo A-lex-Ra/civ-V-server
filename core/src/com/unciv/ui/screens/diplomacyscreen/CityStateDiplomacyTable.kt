@@ -210,8 +210,8 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
         val revokeProtectionButton = "Revoke Protection".toTextButton()
         revokeProtectionButton.onClick {
             ConfirmPopup(diplomacyScreen, "Revoke protection for [${otherCiv.civName}]?", "Revoke Protection") {
-                // multiplayer-v2: send the withdraw intent before the local mutation, then FALL THROUGH.
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                // multiplayer-v3: send the withdraw intent before the local mutation, then FALL THROUGH.
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.CityStateProtection(
                         cityStateCivName = otherCiv.civName, pledge = false
@@ -236,8 +236,8 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
                 "Pledge to protect",
                 true
             ) {
-                // multiplayer-v2: send the pledge intent before the local mutation, then FALL THROUGH.
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                // multiplayer-v3: send the pledge intent before the local mutation, then FALL THROUGH.
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.CityStateProtection(
                         cityStateCivName = otherCiv.civName, pledge = true
@@ -265,9 +265,9 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
                 "Negotiate Peace",
                 true
             ) {
-                // multiplayer-v2: this confirm concludes a peace treaty with a city-state — send the
+                // multiplayer-v3: this confirm concludes a peace treaty with a city-state — send the
                 // MakePeace intent before the local mutation, then FALL THROUGH.
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.MakePeace(
                         targetCivName = otherCiv.civName
@@ -358,8 +358,8 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
             val giftButton =
                 "Gift [$giftAmount] gold (+[$influenceAmount] influence)".toTextButton()
             giftButton.onClick {
-                // multiplayer-v2: send the intent before the local mutation, then FALL THROUGH.
-                val v2 = com.unciv.UncivGame.Current.v2GameManager
+                // multiplayer-v3: send the intent before the local mutation, then FALL THROUGH.
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
                 if (v2 != null) {
                     v2.sendCommand(com.unciv.network.command.GameCommand.GiftGold(
                         targetCivName = otherCiv.civName, gold = giftAmount

@@ -139,13 +139,13 @@ class MultiplayerScreen : PickerScreen() {
     }
 
     /**
-     * EXPERIMENTAL / PREVIEW (multiplayer-v2): opens the [JoinV2GameScreen] to join a hosted
+     * EXPERIMENTAL / PREVIEW (multiplayer-v3): opens the [JoinV3GameScreen] to join a hosted
      * authoritative v2 game by its relay Room ID. The matching HOST entry lives in NewGameScreen.
      */
     private fun createJoinV2GameButton(): TextButton {
         val btn = "Join experimental game (v2)".toTextButton()
         btn.onClick {
-            game.pushScreen(JoinV2GameScreen())
+            game.pushScreen(JoinV3GameScreen())
         }
         return btn
     }

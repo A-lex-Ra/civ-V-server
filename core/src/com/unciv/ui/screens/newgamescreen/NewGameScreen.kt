@@ -354,8 +354,8 @@ class NewGameScreen(
             return@coroutineScope
         }
 
-        if (gameSetupInfo.gameParameters.isMultiplayerV2) {
-            // EXPERIMENTAL / PREVIEW (multiplayer-v2, option A): host the canonical game through the
+        if (gameSetupInfo.gameParameters.isMultiplayerV3) {
+            // EXPERIMENTAL / PREVIEW (multiplayer-v3, option A): host the canonical game through the
             // authoritative relay netcode. The GameSession owns the canonical GameInfo; the host is
             // itself a client of that authority (in-process loopback) and renders its OWN filtered
             // view — never the canonical state directly — so it does not hotseat-control other civs.
@@ -363,12 +363,12 @@ class NewGameScreen(
             try {
                 val serverUrl = UncivGame.Current.settings.multiplayer.getServer()
                 val hostUserId = UncivGame.Current.settings.multiplayer.getUserId()
-                val manager = com.unciv.logic.multiplayer.v2.V2GameManager()
+                val manager = com.unciv.logic.multiplayer.v3.V3GameManager()
                 val roomId = manager.hostGame(
                     gameInfo = newGame,
                     serverUrl = serverUrl,
                     hostUserId = hostUserId,
-                    roster = com.unciv.logic.multiplayer.v2.V2GameManager.rosterFrom(newGame)
+                    roster = com.unciv.logic.multiplayer.v3.V3GameManager.rosterFrom(newGame)
                 )
                 // Pull the host's own filtered view from its in-process authority (synchronous over
                 // the loopback), exactly as a joiner does, and render THAT.
@@ -385,7 +385,7 @@ class NewGameScreen(
                     return@coroutineScope
                 }
                 // Must be set BEFORE loadGame so the new WorldScreen.init sees it.
-                game.v2GameManager = manager
+                game.v3GameManager = manager
                 val worldScreen = game.loadGame(firstView)
                 launchOnGLThread {
                     Gdx.app.clipboard.contents = roomId

@@ -5,7 +5,7 @@ import kotlinx.serialization.json.ClassDiscriminatorMode
 import kotlinx.serialization.json.Json
 
 /**
- * The single, shared kotlinx.serialization [Json] configuration for the multiplayer-v2 relay
+ * The single, shared kotlinx.serialization [Json] configuration for the multiplayer-v3 relay
  * wire format. Both the client transport (`:core`) and the relay server (`:server`) must use
  * the *same* configuration so the sealed [com.unciv.network.relay.ClientToRelay] /
  * [com.unciv.network.relay.RelayToClient] / [com.unciv.network.game.GameFrame] /

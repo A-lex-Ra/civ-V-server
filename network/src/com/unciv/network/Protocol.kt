@@ -1,7 +1,7 @@
 package com.unciv.network
 
 /**
- * Multiplayer v2 wire protocol — shared, engine-independent definitions.
+ * Multiplayer v3 wire protocol — shared, engine-independent definitions.
  *
  * This module ([`:network`]) is intentionally free of any game-engine ("core") dependency.
  * It only describes *how* peers talk to each other and to the public relay:
@@ -10,7 +10,7 @@ package com.unciv.network
  *  - [com.unciv.network.game]  — game frames exchanged authority <-> clients (opaque to the relay)
  *  - [com.unciv.network.command] — [com.unciv.network.command.GameCommand], the player-intent payloads
  *
- * See `docs/multiplayer-v2.md` for the full design.
+ * See `docs/multiplayer-v3.md` for the full design.
  *
  * Phase 0: skeleton only — the types compile and serialize, but no transport/authority logic
  * is wired up yet, and no existing behaviour is changed.
