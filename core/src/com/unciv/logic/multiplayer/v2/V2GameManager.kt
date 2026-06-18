@@ -167,7 +167,7 @@ class V2GameManager {
 
         // Split outbound sink: the host's OWN frames are delivered in-process (no socket round-trip);
         // every other player's frames go over the relay, directed, exactly as before.
-        val h = V2GameHost(t, gameInfo, roster) { playerId, frame ->
+        val h = V2GameHost(t, gameInfo, roster, hostUserId) { playerId, frame ->
             if (playerId == hostUserId) deliverLocal(frame)
             else t.send(ClientToRelay.RelayTo(targetUserId = playerId, payload = frame))
         }

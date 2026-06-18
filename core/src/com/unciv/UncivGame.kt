@@ -225,8 +225,12 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
             worldScreen = newWorldScreen
 
             val moreThanOnePlayer = newGameInfo.civilizations.count { it.playerType == PlayerType.Human } > 1
-            val isSingleplayer = !newGameInfo.gameParameters.isOnlineMultiplayer
-            val screenToShow = if (moreThanOnePlayer && isSingleplayer) {
+            // The hand-the-device "ready?" gate is for local hotseat only. Authoritative multiplayer-v2
+            // (option A) is NOT online-MP (isOnlineMultiplayer stays false) yet each process controls a
+            // single player and renders its own filtered view — without excluding it here, every v2
+            // view refresh would bounce the player to a hotseat PlayerReadyScreen for the OTHER humans.
+            val isHotseat = !newGameInfo.gameParameters.isOnlineMultiplayer && !newGameInfo.gameParameters.isMultiplayerV2
+            val screenToShow = if (moreThanOnePlayer && isHotseat) {
                 PlayerReadyScreen(newWorldScreen)
             } else {
                 newWorldScreen

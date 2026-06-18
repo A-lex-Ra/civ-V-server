@@ -55,6 +55,12 @@ class V2GameHost(
     /** `UserId -> civId` roster. Since `PlayerId == UserId` this is the [GameSession] roster as-is. */
     roster: Map<UserId, String>,
     /**
+     * This authority's own user id. It is **always** counted as connected (option A — the host is also
+     * a local client of its own authority and never appears in its own relay presence list), seeding
+     * [connectedPlayers]. The rest of the connected set is maintained from relay presence.
+     */
+    private val hostUserId: UserId,
+    /**
      * Optional outbound override (option A — "host is a client of its own in-process authority").
      * When the host process *also* runs a local client for its own civ, the session must deliver
      * that player's frames in-process (into a local view holder) instead of over the relay, while
@@ -65,15 +71,27 @@ class V2GameHost(
     outbound: ((PlayerId, GameFrame) -> Unit)? = null
 ) {
     /**
+     * UserIds with a live connection to this authority: the host itself, plus every relay peer that
+     * has joined and not since left. Maintained from relay presence ([RelayToClient.Welcome] /
+     * [RelayToClient.PeerJoined] / [RelayToClient.PeerLeft], plus any [RelayToClient.Relayed] sender as
+     * a safety net), and read by the [GameSession] barrier so the round never waits forever on a
+     * rostered human who never connected or has dropped. Mutated on the transport receive thread and
+     * read on the session's worker — guarded by `synchronized(connectedPlayers)`.
+     */
+    private val connectedPlayers = mutableSetOf(hostUserId)
+
+    /**
      * The authoritative session. Its outbound sink directs each per-player frame to that player's
      * connection: `RelayTo(targetUserId = playerId, payload = frame)`. PlayerId == UserId, so the
      * `playerId` the session emits *is* the relay target. A caller-supplied [outbound] (the
-     * host-as-client split sink) takes precedence over this default.
+     * host-as-client split sink) takes precedence over this default. [GameSession.isConnected] is fed
+     * the live relay-presence set so the barrier only gates on players that can still act.
      */
     val session: GameSession = GameSession(
         gameInfo,
         roster,
-        outbound ?: { playerId: PlayerId, frame: GameFrame ->
+        isConnected = { playerId -> synchronized(connectedPlayers) { playerId in connectedPlayers } },
+        outbound = outbound ?: { playerId: PlayerId, frame: GameFrame ->
             transport.send(ClientToRelay.RelayTo(targetUserId = playerId, payload = frame))
         }
     )
@@ -87,9 +105,28 @@ class V2GameHost(
     }
 
     private fun onRelayMessage(message: RelayToClient) {
-        if (message !is RelayToClient.Relayed) return // membership/presence/errors: nothing to apply
-        val bound = bindIdentity(message.fromId, message.payload)
-        session.onFrame(bound)
+        when (message) {
+            is RelayToClient.Relayed -> {
+                // A frame's sender is provably connected right now — record it (covers a missed/raced
+                // PeerJoined or a reconnect) before applying, rebinding identity to the relay's fromId.
+                markConnected(message.fromId)
+                session.onFrame(bindIdentity(message.fromId, message.payload))
+            }
+            // Presence: keep the connected set live so the barrier waits only on players that can act.
+            is RelayToClient.Welcome -> message.peers.forEach(::markConnected)
+            is RelayToClient.PeerJoined -> markConnected(message.userId)
+            is RelayToClient.PeerLeft -> {
+                synchronized(connectedPlayers) { connectedPlayers.remove(message.userId) }
+                // A peer dropping may be exactly who the round was still waiting on — re-check now so
+                // the survivors don't hang on "Waiting for other players...".
+                session.onPlayerDisconnected(message.userId)
+            }
+            is RelayToClient.Error -> Unit
+        }
+    }
+
+    private fun markConnected(userId: UserId) {
+        synchronized(connectedPlayers) { connectedPlayers.add(userId) }
     }
 
     /**

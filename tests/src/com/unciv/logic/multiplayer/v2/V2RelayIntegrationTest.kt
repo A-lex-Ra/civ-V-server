@@ -158,7 +158,7 @@ class V2RelayIntegrationTest {
 
             // PlayerId == UserId, so the GameSession roster is UserId -> civId directly.
             val roster = mapOf(hostUserId to civA.civID, clientUserId to civB.civID)
-            val host = V2GameHost(hostTransport, testGame.gameInfo, roster)
+            val host = V2GameHost(hostTransport, testGame.gameInfo, roster, hostUserId)
             host.start() // installs the host's onMessage handler (replaces the inbox tap above)
 
             // --- CLIENT: register the handler BEFORE joining so the Welcome (host id) isn't missed ---

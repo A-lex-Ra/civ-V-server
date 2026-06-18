@@ -1,3 +1,26 @@
-v2 multiplayer issues:
-- on the first turn one client placed first city and "won game" by acquiring all the capitals
-- on the second turn this city diappeared, on the third turn i got new Settler...
+What was added — all player mechanics now route through the authoritative command path
+Worked as staged orchestration (sequential on the shared GameCommand.kt/CommandExecutor.kt, then parallel file-disjoint UI wiring), reviewing + committing per stage. 8 commits on master:
+
+Command vocabulary + authority executors (3 commits): Diplomacy/Trade/Policy → City/Espionage → Unit/GreatPerson/Religion. Each executor resolves the subject, validates with the engine's own gate, delegates to the engine's own method (no hand-rolled state, headless-safe).
+
+UI wiring (4 parallel agents, 1 commit + a religion follow-up): every confirm/click site now sends the intent then falls through to local optimistic feedback, mirroring the MoveUnit template.
+
+Coverage: DeclareWar, MakePeace, DeclareFriendship, Denounce, GiftGold, CityStateProtection, DemandResponse, RespondToTrade, AdoptPolicy, BuyConstruction, RazeCity, AnnexCity, BuyTile, ToggleLockedTile, SetCityFocus, ResetCitizens, ToggleAvoidGrowth, SellBuilding, UpgradeUnit, BuildImprovement, Paradrop, SwapUnits, GiftUnit, DisbandUnit, SpreadReligion, RemoveHeresy, FoundPantheon, FoundReligion, EnhanceReligion, ChooseGreatPerson, MoveSpy, SetSpyAction + SetUp/AirSweep/Repair/Automate/Pillage/CreateImprovement + GP on-map actions via GenericUnitAction (on top of the earlier Move/EndTurn/FoundCity/SetCityProduction/ChooseTech/PromoteUnit/AttackUnit).
+
+"Waiting for other players" deadlock
+You're right — that was the EndTurn-not-wired gap in the minimal build. It's now wired: every End Turn → sendEndTurn → the authority barrier → resolveRound → one snapshot broadcast → both clients' latches clear and screens re-enable (I traced both host-first/joiner-first orderings; the turn counter always advances by one per round, so the latch reliably clears, and WorldScreen keeps both humans active regardless of currentPlayer). I also hardened a separate real deadlock — an eliminated human no longer blocks the barrier — with a regression test.
+
+Verification
+:network + :core compile clean.
+Full multiplayer-v2 test suite green (50 tests), including a new defeated-human barrier test and a fix to V2RelayIntegrationTest (it predated the barrier and only ended the client).
+Deferred (with reasons, not silently dropped)
+ProposeTrade (offering a bilateral trade) — Trade/TradeOffer use libgdx-JSON, not kotlinx serialization; needs a parallel DTO. RespondToTrade (accept/decline incoming) is wired.
+DefensivePact — no standalone UI button; it's a trade-treaty offer, already covered by RespondToTrade.
+ToggleWeLoveTheKing — no player action exists (engine-set only).
+TriggerUnique (golden-age/free-units/map-reveal uniques) — RNG/multi-step; left as a documented TODO.
+Disconnect (vs. elimination) mid-game still waits on the peer — no transport liveness signal yet; documented follow-up.
+Note: this turned into a large multi-part effort inside one chat. Since each turn re-reads the whole thread, a fresh chat for the next distinct task (e.g. the deferred ProposeTrade, or live smoke-testing) would be sharper and cheaper — I can carry over just the v2 architecture notes if useful.
+
+Verdict: Success
+Could not do: ProposeTrade, TriggerUnique, ToggleWeLoveTheKing, and mid-game disconnect handling — deferred with reasons above
+Assumed: wire "civName" locators are civ ids (== nation name for major civs), matching the existing executor convention

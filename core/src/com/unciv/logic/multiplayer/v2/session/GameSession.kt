@@ -11,6 +11,7 @@ import com.unciv.network.Checksum
 import com.unciv.network.PlayerId
 import com.unciv.network.command.GameCommand
 import com.unciv.network.game.GameFrame
+import com.unciv.utils.Log
 
 /**
  * The authoritative game session: owns the canonical [GameInfo], applies player commands through
@@ -44,6 +45,18 @@ class GameSession(
      * human players that receive [GameFrame.PlayerView] snapshots is derived from this roster.
      */
     private val roster: Map<PlayerId, String>,
+    /**
+     * Tells the barrier which rostered players currently have a **live connection** to this
+     * authority. The streaming round resolves once every CONNECTED + alive human has ended — a
+     * rostered human who never joined (an unfilled lobby slot keyed by a UserId nobody connects with)
+     * or who has dropped must NOT keep the round waiting forever ("Waiting for other players...").
+     * The host loop feeds relay presence here (see [com.unciv.logic.multiplayer.v2.net.V2GameHost]).
+     *
+     * Defaults to "everyone is connected" so the direct-`onFrame` unit tests (which have no transport
+     * and no presence signal) behave exactly as before. Declared before [outbound] so the trailing-
+     * lambda `GameSession(gameInfo, roster) { ... }` call form still binds the lambda to [outbound].
+     */
+    private val isConnected: (PlayerId) -> Boolean = { true },
     /**
      * Outbound sink: the session calls this to send a [GameFrame] to a specific [PlayerId]. The sink
      * owner is responsible for the actual transport (relay `RelayTo` / dedicated direct send). Kept
@@ -198,24 +211,42 @@ class GameSession(
     }
 
     /**
-     * The rostered players whose civ is human AND still in the game — the set whose `EndTurn` (or
-     * `done` submission) gates round resolution.
+     * The rostered players whose civ is human, still in the game, AND currently connected — the set
+     * whose `EndTurn` (or `done` submission) gates round resolution.
      *
      * **Defeated humans are excluded.** An eliminated player never sends another `EndTurn`, so counting
      * them would deadlock the streaming barrier: every surviving client would sit on "Waiting for other
-     * players..." forever, because [onEndTurn] could never see *every* expected human as done. Excluding
-     * the defeated also keeps [resolveRound]'s `nextTurn` count equal to the number of live human turns
-     * the engine actually cycles through.
+     * players..." forever, because [onEndTurn] could never see *every* expected human as done.
      *
-     * NOTE (known limitation, deferred): a human who *disconnects* — rather than being eliminated —
-     * still counts here, because the session has no transport liveness signal yet. Robust mid-game
-     * disconnect handling (drop the peer from the barrier, or a per-round resolve timeout) is a separate
-     * follow-up (docs/multiplayer-v2.md §11).
+     * **Disconnected / never-joined humans are excluded** ([isConnected]). A rostered human that no
+     * client ever connected as (an unfilled lobby slot) — or one whose connection dropped — likewise
+     * never sends `EndTurn`. Gating on it is the same deadlock; the host loop feeds real relay presence
+     * via [isConnected] so the round only waits on players that can actually still act.
+     *
+     * This is the *barrier* set (who we wait for), deliberately distinct from [aliveHumanTurnCount]
+     * (how many `nextTurn`s a round costs) — an absent-but-alive human still occupies a turn the engine
+     * cycles through, but must not gate the barrier.
      */
     private fun expectedHumanPlayers(): Set<PlayerId> =
         roster.keys.filterTo(mutableSetOf()) { playerId ->
             val civ = gameInfo.getCivilizationOrNull(roster.getValue(playerId))
-            civ?.playerType == PlayerType.Human && !civ.isDefeated()
+            civ?.playerType == PlayerType.Human && !civ.isDefeated() && isConnected(playerId)
+        }
+
+    /**
+     * The number of `nextTurn()` calls one full simultaneous round costs: one per human civ the engine
+     * **stops at** — i.e. alive, non-spectator humans. (Defeated and spectator civs are auto-processed
+     * *inside* a single `nextTurn`, so they don't each need their own call.)
+     *
+     * This is independent of [expectedHumanPlayers]/[isConnected]: even when a rostered human is absent
+     * or has dropped (so the barrier no longer waits on them), the engine still cycles through their
+     * civ's turn, so the round must run a `nextTurn` for it to wrap back to the starting human and
+     * advance `turns`. Counting only connected players here would under-cycle and leave `turns`
+     * un-advanced — the clients' "ended" latch (cleared by a later-turn view) would then never clear.
+     */
+    private fun aliveHumanTurnCount(): Int =
+        gameInfo.civilizations.count {
+            it.playerType == PlayerType.Human && !it.isDefeated() && !it.isSpectator()
         }
 
     private fun isHuman(civId: String): Boolean =
@@ -239,25 +270,62 @@ class GameSession(
      */
     private fun onEndTurn(playerId: PlayerId) {
         endedThisPhase.add(playerId)
+        maybeResolveRound()
+    }
+
+    /**
+     * Resolve the streaming round iff every still-active, connected human has ended. Factored out so a
+     * connection drop ([onPlayerDisconnected]) can re-check the barrier with the same logic: if the
+     * only humans still missing were the ones that just left, the round resolves now instead of hanging.
+     *
+     * The `isNotEmpty` guard means a stray `EndTurn` from a non-active player (e.g. one just eliminated
+     * or disconnected) cannot trigger a spurious resolution when there is no live, connected human left
+     * to gate on. The round is advanced by one `nextTurn` per alive human civ ([aliveHumanTurnCount]) —
+     * NOT per connected player — so it always wraps back to the starting human even with an absent one.
+     */
+    private fun maybeResolveRound() {
         val expected = expectedHumanPlayers()
-        // Resolve once every still-active human has ended. The `isNotEmpty` guard means a stray EndTurn
-        // from a non-active player (e.g. one just eliminated) cannot trigger a spurious resolution when
-        // there is no live human left to gate on.
         if (expected.isNotEmpty() && endedThisPhase.containsAll(expected)) {
-            resolveRound(expected.size)
+            resolveRound(aliveHumanTurnCount())
             endedThisPhase.clear()
+        } else {
+            // Diagnostic for the "Waiting for other players..." case: name exactly who the round is
+            // still gated on, so a stuck barrier in the field is debuggable (e.g. a rostered human who
+            // never connected would, before the isConnected gate, show up here forever).
+            Log.debug("v2 round not resolving: ended=%s, still waiting on=%s",
+                endedThisPhase, expected - endedThisPhase)
         }
     }
 
     /**
-     * Advance one full simultaneous round. The engine's [GameInfo.nextTurn] ends the *current* human,
-     * auto-processes every AI civ after it, and stops at the *next* human — so cycling through all
-     * [humanCount] humans (and the AI between them) and back to a fresh human phase is exactly one
-     * `nextTurn()` per human. Then push each human their fresh post-round snapshot.
+     * The host loop calls this when the relay reports a peer has left ([RelayToClient.PeerLeft] →
+     * [com.unciv.logic.multiplayer.v2.net.V2GameHost]). The departed player is dropped from the set of
+     * those who have ended (hygiene; they're already excluded from [expectedHumanPlayers] via
+     * [isConnected]) and the barrier is re-checked: if the round was only still waiting on the player
+     * that just dropped, it resolves now rather than leaving the survivors stuck on
+     * "Waiting for other players...". No-op if the drop doesn't complete the round.
      *
-     * (First-cut: assumes the human count is stable across the round. A human eliminated mid-game no
-     * longer submits `EndTurn`, so robust handling of that — not gating the barrier on dead humans —
-     * is a documented follow-up, deferred per docs/multiplayer-v2.md §11.)
+     * `@Synchronized` for the same reason as [onFrame] — it runs on the transport receive thread and
+     * mutates / reads the same barrier + canonical state.
+     */
+    @Synchronized
+    fun onPlayerDisconnected(playerId: PlayerId) {
+        endedThisPhase.remove(playerId)
+        maybeResolveRound()
+    }
+
+    /**
+     * Advance one full simultaneous round. The engine's [GameInfo.nextTurn] ends the *current* human,
+     * auto-processes every AI civ (and any defeated/spectator civ) after it, and stops at the *next*
+     * human — so cycling through all [humanCount] humans (and the AI between them) and back to a fresh
+     * human phase is exactly one `nextTurn()` per human. Then push each human their fresh post-round
+     * snapshot.
+     *
+     * [humanCount] is [aliveHumanTurnCount] — the count of human civs the engine actually stops at,
+     * which can be LARGER than the barrier set ([expectedHumanPlayers]) when a rostered human is absent
+     * or disconnected: that human's civ still occupies a turn the engine cycles through, so we must run
+     * a `nextTurn` for it to wrap the round and advance `turns`, even though the barrier no longer waits
+     * on them.
      */
     private fun resolveRound(humanCount: Int) {
         repeat(humanCount.coerceAtLeast(1)) { gameInfo.nextTurn() }
