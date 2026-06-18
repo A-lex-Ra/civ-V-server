@@ -351,9 +351,17 @@ class GameSession(
      * for the human/roster checks it cares about; [onResyncRequest] also rejects non-human ids.
      */
     private fun sendSnapshotTo(playerId: PlayerId, civId: String) {
-        gameInfo.getCivilizationOrNull(civId) ?: return
+        val civ = gameInfo.getCivilizationOrNull(civId) ?: return
         val projected = PlayerViewProjector.projectFor(gameInfo, civId)
         val bytes = GameInfoCodec.encode(projected)
+        // Popup alerts are one-shot UI events (the StartIntro "Let's begin!", war declarations,
+        // tech-researched, …). The client shows them from THIS snapshot and discards them locally, but
+        // it has no channel to tell the authority it did. So once a snapshot carrying them has been
+        // built (the projected deep copy above already captured them), drop them from the canonical civ
+        // — otherwise every later PlayerView re-delivers and re-shows them, which is the "welcome modal
+        // pops up at the start of every turn" bug. Single-player has the same fire-once semantics: the
+        // UI removes each alert as it shows it.
+        civ.popupAlerts.clear()
         outbound(
             playerId,
             GameFrame.PlayerView(
