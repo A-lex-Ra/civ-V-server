@@ -373,14 +373,24 @@ class GameSession(
     }
 
     /**
-     * Compute a deterministic checksum of the current canonical state. Not needed this stage — v2 is
+     * A thread-safe, consistent deep copy of the authority's canonical [gameInfo], for persistence:
+     * the host's manual save / autosave (and, later, a dedicated server). Cloned under the same lock
+     * that guards command application and turn resolution, so the snapshot stays coherent even while
+     * commands stream in on other threads. The host's WorldScreen renders only a *filtered* loopback
+     * view, so the host must save THIS canonical copy, not what it shows.
+     */
+    @Synchronized
+    fun cloneCanonicalForSave(): GameInfo = gameInfo.clone()
+
+    /**
+     * Compute a deterministic checksum of the current canonical state. Not needed this stage — v3 is
      * authoritative (clients never re-simulate), so there is no convergence checksum requirement
      * (docs/multiplayer-v3.md §3). Left unimplemented.
      *
-     * @throws NotImplementedError — no determinism/checksum requirement in v2.
+     * @throws NotImplementedError — no determinism/checksum requirement in v3.
      */
     fun checksum(): Checksum =
-        throw NotImplementedError("GameSession.checksum: v2 has no determinism/convergence checksum (see docs/multiplayer-v3.md §3)")
+        throw NotImplementedError("GameSession.checksum: v3 has no determinism/convergence checksum (see docs/multiplayer-v3.md §3)")
 
     companion object {
         /** The save-compatibility version stamped into each [GameFrame.PlayerView]. */

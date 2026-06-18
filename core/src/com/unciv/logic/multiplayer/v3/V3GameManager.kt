@@ -277,6 +277,15 @@ class V3GameManager {
     fun currentClientView(): GameInfo? = clientView?.currentView
 
     /**
+     * HOST mode only: a consistent deep copy of the authoritative, canonical [GameInfo] the session
+     * owns — the real, full game state to persist (the host's manual save / autosave, as a dedicated
+     * server would). The WorldScreen renders only the host's *filtered* loopback view, which must NOT
+     * be saved. Returns null in client mode (a joiner holds only a filtered view, so its save is
+     * disabled in the UI).
+     */
+    fun canonicalGameInfoForSaveOrNull(): GameInfo? = host?.session?.cloneCanonicalForSave()
+
+    /**
      * Ask the authority for an immediate fresh filtered snapshot (client mode only). A joining client
      * needs this because the host only broadcasts a [GameFrame.PlayerView] on EndTurn — without an
      * explicit request, a player who joins mid-turn would block until the next turn advance. Thin

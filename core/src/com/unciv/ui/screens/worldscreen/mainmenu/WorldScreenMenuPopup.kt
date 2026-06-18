@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.scenes.scene2d.Actor
 import com.badlogic.gdx.scenes.scene2d.ui.Cell
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton.TextButtonStyle
+import com.unciv.ui.components.extensions.disable
 import com.unciv.ui.components.input.KeyboardBinding
 import com.unciv.ui.components.input.onLongPress
 import com.unciv.ui.popups.Popup
@@ -45,26 +46,22 @@ class WorldScreenMenuPopup(
             buttonCount * (prefHeight - emptyPrefHeight) + emptyPrefHeight < maxPopupHeight
         firstCell.nextColumn()
 
-        // EXPERIMENTAL multiplayer-v3: surface the relay Room ID right in the in-game menu so the host
-        // can re-share it any time. It is also copied to the clipboard once on game start, but that is
-        // one-shot; here the button label IS the id and tapping it re-copies it. Both host and joiner
-        // hold the room id, so show it whenever this is a v3 game.
-        val v3RoomId = worldScreen.game.v3GameManager?.roomId
-        if (v3RoomId != null)
-            addButton("Room ID: $v3RoomId") {
-                Gdx.app.clipboard.contents = v3RoomId
-                ToastPopup("Room ID copied to clipboard: [$v3RoomId]", worldScreen)
-            }.nextColumn()
-
         addButton("Civilopedia", KeyboardBinding.Civilopedia) {
             close()
             worldScreen.openCivilopedia()
         }.nextColumn()
-        if (showSave)
-            addButton("Save game", KeyboardBinding.SaveGame) {
+        if (showSave) {
+            val saveCell = addButton("Save game", KeyboardBinding.SaveGame) {
                 close()
                 worldScreen.openSaveGameScreen()
-            }.nextColumn()
+            }
+            // multiplayer-v3 joiner: it holds only a filtered view, so local saving is disabled (muted).
+            // The HOST can save — it persists the authority's canonical state (see
+            // WorldScreen.openSaveGameScreen / GameSession.cloneCanonicalForSave).
+            if (worldScreen.game.v3GameManager?.let { !it.isHost } == true)
+                saveCell.actor.disable()
+            saveCell.nextColumn()
+        }
         addButton("Load game", KeyboardBinding.LoadGame) {
             close()
             worldScreen.game.pushScreen(LoadGameScreen())
@@ -103,6 +100,25 @@ class WorldScreenMenuPopup(
             Gdx.app.exit()
         }.apply { actor.style = BaseScreen.skin.get("negative", TextButtonStyle::class.java) }
             .nextColumn()
+
+        // EXPERIMENTAL multiplayer-v3 status: whether this client is the authority (host) or a joined
+        // player, plus the relay Room ID (the label IS the id; tapping it re-copies it to the clipboard).
+        // Their own full-width rows so the long id doesn't disrupt the two-column button grid above.
+        val v3Manager = worldScreen.game.v3GameManager
+        if (v3Manager != null) {
+            val span = if (singleColumn) 1 else 2
+            row()
+            addGoodSizedLabel(
+                if (v3Manager.isHost) "Multiplayer (v3): you are the host"
+                else "Multiplayer (v3): you joined as a player"
+            ).colspan(span).row()
+            val v3RoomId = v3Manager.roomId
+            if (v3RoomId != null)
+                addButton("Room ID: $v3RoomId") {
+                    Gdx.app.clipboard.contents = v3RoomId
+                    ToastPopup("Room ID copied to clipboard: [$v3RoomId]", worldScreen)
+                }.colspan(span).row()
+        }
 
         addCloseButton().run { colspan(if (singleColumn || column == 1) 1 else 2) }
         pack()

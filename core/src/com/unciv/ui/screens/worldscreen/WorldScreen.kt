@@ -274,9 +274,13 @@ class WorldScreen(
     }
 
     fun openSaveGameScreen() {
-        // See #10353 - we don't support locally saving an online multiplayer game
+        // See #10353 - we don't support locally saving an online multiplayer (v1) game
         if (gameInfo.gameParameters.isOnlineMultiplayer) return
-        game.pushScreen(SaveGameScreen(gameInfo))
+        // multiplayer-v3: the WorldScreen renders only a filtered view. The HOST saves the authority's
+        // canonical state; a joining client has no full game to save (its menu Save action is disabled).
+        val v3 = game.v3GameManager
+        val toSave = if (v3 != null) (v3.canonicalGameInfoForSaveOrNull() ?: return) else gameInfo
+        game.pushScreen(SaveGameScreen(toSave))
     }
 
     private fun addKeyboardPresses() {
@@ -878,9 +882,18 @@ class WorldScreen(
     }
 
     fun autoSave() {
+        // multiplayer-v3: on the HOST persist the authority's CANONICAL state (the resumable game, as a
+        // dedicated server would); a joining client holds only a filtered view, so there is nothing
+        // meaningful to autosave. Single-player / v1 behaviour is unchanged.
+        val v3 = game.v3GameManager
+        val toSave = when {
+            v3 == null -> gameInfo
+            v3.isHost -> v3.canonicalGameInfoForSaveOrNull() ?: gameInfo
+            else -> return
+        }
         waitingForAutosave = true
         shouldUpdate = true
-        UncivGame.Current.files.autosaves.requestAutoSave(gameInfo, true).invokeOnCompletion {
+        UncivGame.Current.files.autosaves.requestAutoSave(toSave, true).invokeOnCompletion {
             // only enable the user to next turn once we've saved the current one
             waitingForAutosave = false
             shouldUpdate = true
