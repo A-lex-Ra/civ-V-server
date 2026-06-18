@@ -14,6 +14,7 @@ import com.unciv.models.ruleset.RulesetCache
 import com.unciv.models.skins.SkinCache
 import com.unciv.models.tilesets.TileSetCache
 import com.unciv.models.translations.Translations
+import com.unciv.models.translations.tr
 import com.unciv.ui.audio.MusicController
 import com.unciv.ui.audio.MusicMood
 import com.unciv.ui.audio.MusicTrackChooserFlags
@@ -24,6 +25,7 @@ import com.unciv.ui.crashhandling.wrapCrashHandlingUnit
 import com.unciv.ui.images.ImageGetter
 import com.unciv.ui.popups.ConfirmPopup
 import com.unciv.ui.popups.Popup
+import com.unciv.ui.popups.ToastPopup
 import com.unciv.ui.screens.GameStartScreen
 import com.unciv.ui.screens.LanguagePickerScreen
 import com.unciv.ui.screens.LoadingScreen
@@ -191,6 +193,18 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
      * @param autoPlay pass in the old WorldScreen AutoPlay to retain the state throughout turns. Otherwise leave it is the default.
      */
     suspend fun loadGame(newGameInfo: GameInfo, autoPlay: AutoPlay = AutoPlay(settings.autoPlay), callFromLoadScreen: Boolean = false): WorldScreen = withThreadPoolContext toplevel@{
+        // EXPERIMENTAL / PREVIEW (multiplayer-v3): loading a v3 SAVE means "resume" — this process
+        // re-hosts the save as the authority and renders the host's own filtered loopback view (see
+        // [startHostingV3Game]). Triggered when there is no active v3 session yet (main-menu resume,
+        // quickload) OR the user explicitly loaded a save (callFromLoadScreen, even mid-game). The
+        // existing host/join flows (NewGameScreen, JoinV3GameScreen) set v3GameManager BEFORE their own
+        // loadGame(firstView) call with callFromLoadScreen=false, so this guard skips them and they
+        // render the supplied view as-is — and the nested loadGame() that startHostingV3Game performs
+        // is skipped for the same reason, so there is no recursion.
+        if (newGameInfo.gameParameters.isMultiplayerV3 && (v3GameManager == null || callFromLoadScreen)) {
+            return@toplevel startHostingV3Game(newGameInfo, autoPlay)
+        }
+
         val prevGameInfo = gameInfo
         gameInfo = newGameInfo
 
@@ -241,6 +255,62 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
             loadingScreen.dispose()
 
             return@withGLContext newWorldScreen
+        }
+    }
+
+    /**
+     * EXPERIMENTAL / PREVIEW (multiplayer-v3, docs/multiplayer-v3.md §7): RESUME a saved v3 game by
+     * re-hosting it. Loading a v3 save (LoadGameScreen, clipboard, custom location, main-menu resume,
+     * quickload) routes here from [loadGame]: this process becomes the authority again for [gameInfo],
+     * a fresh relay room is created, and the UI switches to the host's own filtered loopback view
+     * (never the canonical state) — exactly the path [com.unciv.ui.screens.newgamescreen.NewGameScreen]
+     * uses to start a brand-new v3 game.
+     *
+     * Because the relay is stateless and assigns a fresh room id per `CreateRoom`, resuming yields a
+     * NEW Room ID; it is copied to the clipboard (with a toast) so the host can re-share it with the
+     * players who will re-join. Any previously active v3 session is torn down first. On a
+     * connect/handshake/first-view failure the manager is closed and the exception propagates to the
+     * caller (LoadGameScreen shows the load error).
+     *
+     * The local account becomes the host, so its [GameSettings.MultiplayerSettings.getUserId] must
+     * match a human civ's `playerId` in the save (i.e. resume on the account that hosted it).
+     * Re-hosting under a different account is host migration — still deferred.
+     */
+    private suspend fun startHostingV3Game(gameInfo: GameInfo, autoPlay: AutoPlay): WorldScreen {
+        // Drop any prior v3 session (e.g. loading a different v3 save mid-game) so we never leave a
+        // dangling relay transport behind.
+        v3GameManager?.close()
+        v3GameManager = null
+
+        val manager = com.unciv.logic.multiplayer.v3.V3GameManager()
+        try {
+            val serverUrl = settings.multiplayer.getServer()
+            val hostUserId = settings.multiplayer.getUserId()
+            val roomId = manager.hostGame(
+                gameInfo = gameInfo,
+                serverUrl = serverUrl,
+                hostUserId = hostUserId,
+                roster = com.unciv.logic.multiplayer.v3.V3GameManager.rosterFrom(gameInfo)
+            )
+            // Pull the host's own filtered view from its in-process authority (synchronous over the
+            // loopback), exactly as a joiner does, and render THAT — not the canonical state.
+            manager.requestInitialView()
+            val firstView = manager.awaitFirstView()
+                ?: throw UncivShowableException("Could not host the loaded Authoritative Multiplayer (experimental) game: no response from the authority.")
+
+            // Set BEFORE the nested loadGame so its v3 guard sees an active session and just renders
+            // the host's filtered view instead of recursing back into hosting.
+            v3GameManager = manager
+            val worldScreen = loadGame(firstView, autoPlay) // callFromLoadScreen=false → normal render
+            withGLContext {
+                Gdx.app.clipboard.contents = roomId
+                ToastPopup("Authoritative Multiplayer (experimental) room ID copied to clipboard: [$roomId]".tr(), worldScreen, 4000)
+            }
+            return worldScreen
+        } catch (ex: Exception) {
+            manager.close()
+            if (v3GameManager === manager) v3GameManager = null
+            throw ex
         }
     }
 
