@@ -1,8 +1,8 @@
-# Multiplayer v2 — Authoritative Server, Command-In / Delta-Out
+# Multiplayer v3 — Authoritative Server, Command-In / Delta-Out
 
 > Status: **Design / RFC**. Nothing here changes existing behaviour yet.
 > The existing PBEM multiplayer (APIv0 Dropbox, APIv1 UncivServer file-store) stays
-> fully functional and is the fallback until v2 reaches feature parity.
+> fully functional and is the fallback until v3 reaches feature parity.
 
 ## 1. Why
 
@@ -24,7 +24,7 @@ barbarian camp (a trivial maphack).
 
 ## 2. Goals
 
-The heart of v2 is a **fast, authoritative server that takes commands in and sends
+The heart of v3 is a **fast, authoritative server that takes commands in and sends
 visibility-filtered deltas out**. Everything else hangs off that.
 
 1. **Authoritative simulation** — exactly one party owns the canonical `GameInfo` and is the
@@ -68,7 +68,7 @@ Consequences:
   simulate.
 - Unciv's existing **state-derived RNG** (`GameContext.stateBasedRandom`) and ordered
   collections remain good engineering — they help save-compat, reproducible debugging and any
-  future dedicated-server replay tooling — but they are **not** a v2 correctness dependency.
+  future dedicated-server replay tooling — but they are **not** a v3 correctness dependency.
 - Wall-clock fields, `HashMap` iteration order, floating-point quirks, etc. simply don't matter
   for client convergence anymore; they only matter inside the single authority, like any normal
   server.
@@ -106,11 +106,11 @@ state — it only moves bytes and tracks who's in the room.
 | Layer | Module | Responsibility |
 |------|--------|----------------|
 | **Protocol** | `:network` (pure Kotlin + kotlinx.serialization) | Wire types shared by client, relay and server: relay envelopes, `GameCommand` (in), state-delta / snapshot frames (out), protocol version. **No engine deps.** |
-| **Command** | `core` → `logic/multiplayer/v2/command` | `GameCommand` sealed hierarchy + `CommandExecutor`: the single choke-point that validates and applies an intent to the canonical `GameInfo`. |
-| **Authority/Session** | `core` → `logic/multiplayer/v2/session` | `GameSession`: owns canonical `GameInfo`, applies commands, runs inter-turn processing, and computes the **per-player visibility-filtered delta** for each connected player. Runs in dedicated server **or** client-host. |
-| **Visibility/Delta** | `core` → `logic/multiplayer/v2` | Turns "what changed" into "what *this* player may see" using the engine's existing per-civ visibility (`Civilization.viewableTiles`, explored tiles, known civs). |
+| **Command** | `core` → `logic/multiplayer/v3/command` | `GameCommand` sealed hierarchy + `CommandExecutor`: the single choke-point that validates and applies an intent to the canonical `GameInfo`. |
+| **Authority/Session** | `core` → `logic/multiplayer/v3/session` | `GameSession`: owns canonical `GameInfo`, applies commands, runs inter-turn processing, and computes the **per-player visibility-filtered delta** for each connected player. Runs in dedicated server **or** client-host. |
+| **Visibility/Delta** | `core` → `logic/multiplayer/v3` | Turns "what changed" into "what *this* player may see" using the engine's existing per-civ visibility (`Civilization.viewableTiles`, explored tiles, known civs). |
 | **View model** | `core` (client) | The thin, partial state a client holds — its own civ in full plus the filtered view of everything else — built up by applying deltas. |
-| **Transport** | `core` → `logic/multiplayer/v2/transport` (client) and `server` (relay/server) | WebSocket client; relay rooms/routing on the server; dedicated-server endpoint. |
+| **Transport** | `core` → `logic/multiplayer/v3/transport` (client) and `server` (relay/server) | WebSocket client; relay rooms/routing on the server; dedicated-server endpoint. |
 
 ## 5. Protocol sketch (`:network`)
 
@@ -219,13 +219,13 @@ resulting changes go out as the next round of per-player deltas.
 - `GameCommand` and frame types are **sealed + `@SerialName`** → new subtypes are additive;
   receivers reject unknown subtypes cleanly rather than corrupting state.
 - `PlayerView` snapshots carry a `compatVersion` (reuse `GameInfo` save-compat machinery).
-- Everything is feature-flagged; APIv0/APIv1 remain the default until v2 is at parity.
+- Everything is feature-flagged; APIv0/APIv1 remain the default until v3 is at parity.
 
 ## 10. Incremental, shippable phases
 
 | Phase | Deliverable | Verifiable by |
 |------|-------------|---------------|
-| **0** ✓ | This doc + `:network` protocol module skeleton + `core` `v2` package stubs. No behaviour change. | Project compiles; unit tests unchanged. |
+| **0** ✓ | This doc + `:network` protocol module skeleton + `core` `v3` package stubs. No behaviour change. | Project compiles; unit tests unchanged. |
 | **1** ✓ | Relay server (rooms/routing/presence) + client relay transport — **pure connectivity** for anyone-can-host. | Two clients exchange frames through the relay. |
 | **2** ✓ | `CommandExecutor` + authority applies commands to the canonical `GameInfo` in one process (first: `MoveUnit`). | Unit test: a command mutates `GameInfo` through the bus; an illegal command is rejected. |
 | **3** ✓ | **Command-in / visibility-filtered delta-out** protocol + thin client view model; sequential play; runs identically in **dedicated-server and anyone-can-host** modes. | Authority loop + per-player filtered `PlayerView` (incl. round-trip through `setTransients`); a client holds only its filtered view (cannot see fogged enemy units/cities). Delta-out is via full filtered snapshots; semantic `StateDelta` is deferred (§11). |
@@ -234,14 +234,14 @@ resulting changes go out as the next round of per-player deltas.
 | **6** ✓ | Reconnection / desync recovery: a dropped *client* rejoins and gets a fresh filtered `PlayerView`. | On-demand `ResyncRequest` → fresh directed `PlayerView` from the authority's current state. |
 | **7** *(far future)* | Host promotion/migration via cold-standby checkpoint. | Kill a client-host → resume from standby. |
 
-> **Implementation status (phases 2–6).** The v2 **mechanisms** above are built and unit-tested
-> (`./gradlew :tests:test --tests 'com.unciv.logic.multiplayer.v2.*'` — 26 tests green): command
+> **Implementation status (phases 2–6).** The v3 **mechanisms** above are built and unit-tested
+> (`./gradlew :tests:test --tests 'com.unciv.logic.multiplayer.v3.*'` — 26 tests green): command
 > execution, visibility projection, the authority loop (sequential + simultaneous), client view +
 > prediction, and on-demand resync. **Not yet wired:** the *integration glue* that connects the real
 > `WebSocketRelayTransport` to a running `GameSession` (the host loop that reads inbound `Relayed`
 > frames → `session.onFrame`, and routes outbound frames via `RelayTo`), and the UI/flow to start and
-> play a v2 game. Tests currently drive `GameSession.onFrame` directly. That host-loop wiring is the
-> next step toward an actually-playable v2 — and is where the **identity-binding** security fix must
+> play a v3 game. Tests currently drive `GameSession.onFrame` directly. That host-loop wiring is the
+> next step toward an actually-playable v3 — and is where the **identity-binding** security fix must
 > land: the authority must bind a frame's `playerId` to the connection (the relay's `Relayed.fromId`)
 > rather than trusting the frame, or a hostile client could spoof another player (affects
 > `PlayerCommand` and `ResyncRequest`).
@@ -270,5 +270,5 @@ the 256 MiB available in some dev sandboxes). Build & test on a developer machin
 
 ```
 ./gradlew :network:build :server:build :core:compileKotlin
-./gradlew :tests:test --tests 'com.unciv.logic.multiplayer.v2.*'
+./gradlew :tests:test --tests 'com.unciv.logic.multiplayer.v3.*'
 ```

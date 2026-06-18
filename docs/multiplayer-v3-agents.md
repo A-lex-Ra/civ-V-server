@@ -1,7 +1,7 @@
-# Multiplayer v2 — Implementation Context for Subagents
+# Multiplayer v3 — Implementation Context for Subagents
 
 Read this once before starting your assigned stage. The **full design** is in
-[`docs/multiplayer-v2.md`](multiplayer-v2.md) — read the sections relevant to your stage
+[`docs/multiplayer-v3.md`](multiplayer-v3.md) — read the sections relevant to your stage
 (especially §2 goals, §5 protocol, §6 turn models, §10 phases, §11 open questions). Don't
 duplicate that doc; this file is just the working context.
 
@@ -23,9 +23,9 @@ Two principles that constrain every stage:
 | Where | Path | What |
 |---|---|---|
 | `:network` | `network/src/com/unciv/network/` | Pure wire protocol, **NO engine deps**. `Protocol.kt` (version + id typealiases), `relay/RelayMessages.kt` (envelopes), `game/GameFrame.kt` (authority↔client frames), `command/GameCommand.kt` (intents), `serialization/RelayJson.kt` (shared `relayJson`). |
-| `:core` v2 | `core/src/com/unciv/logic/multiplayer/v2/` | Engine side. `command/CommandExecutor.kt`, `session/GameSession.kt` (the authority loop), `visibility/PlayerViewProjector.kt` (anti-maphack projection), `client/GameInfoCodec.kt` + `client/ClientGameView.kt` (snapshot decode + view holder), `transport/RelayTransport.kt` + `WebSocketRelayTransport.kt`. |
+| `:core` v3 | `core/src/com/unciv/logic/multiplayer/v3/` | Engine side. `command/CommandExecutor.kt`, `session/GameSession.kt` (the authority loop), `visibility/PlayerViewProjector.kt` (anti-maphack projection), `client/GameInfoCodec.kt` + `client/ClientGameView.kt` (snapshot decode + view holder), `transport/RelayTransport.kt` + `WebSocketRelayTransport.kt`. |
 | `:server` | `server/src/com/unciv/app/server/` | `RelayServer.kt` + the `/relay` route wired in `UncivServer.kt`. |
-| `:tests` | `tests/src/com/unciv/logic/multiplayer/v2/` | `RelayIntegrationTest.kt`. Test scaffolding for building a `GameInfo` lives in `tests/src/.../testing/` (e.g. `TestGame`) — use it. |
+| `:tests` | `tests/src/com/unciv/logic/multiplayer/v3/` | `RelayIntegrationTest.kt`. Test scaffolding for building a `GameInfo` lives in `tests/src/.../testing/` (e.g. `TestGame`) — use it. |
 
 ## Conventions (match the existing code, don't invent)
 
@@ -37,22 +37,22 @@ Two principles that constrain every stage:
 - `:core` exposes `:network` via `api`. The authority mutates `GameInfo` **only** through
   `CommandExecutor` — it is the single choke-point.
 - Ordered collections (`LinkedHashMap`) are good hygiene but not a correctness requirement.
-- Do **not** touch the APIv0/APIv1 PBEM paths — they remain the default; v2 is additive and
+- Do **not** touch the APIv0/APIv1 PBEM paths — they remain the default; v3 is additive and
   feature-flagged.
 
 ## Build & test (Windows, gradle wrapper, JDK present; daemon is warm)
 
 ```
 ./gradlew :network:build :server:build :core:compileKotlin
-./gradlew :tests:test --tests 'com.unciv.logic.multiplayer.v2.*'
+./gradlew :tests:test --tests 'com.unciv.logic.multiplayer.v3.*'
 ```
 
 - The `:core` compile is heavy (minutes) — expect it. Don't run `desktop:dist` unless asked.
-- **Leave the build green and the v2 tests passing.** That is the bar for "done".
+- **Leave the build green and the v3 tests passing.** That is the bar for "done".
 
 ## Current status
 
-- **Phase 0 ✓** — protocol skeleton + `core` v2 stubs.
+- **Phase 0 ✓** — protocol skeleton + `core` v3 stubs.
 - **Phase 1 ✓** — relay (`RelayServer`) + client transport (`WebSocketRelayTransport`);
   `RelayIntegrationTest` passes. Host migration / `HostChanged` **removed** (deferred to Phase 7) —
   do not reintroduce it.
@@ -100,7 +100,7 @@ protect the test:
 1. Implement **only your assigned stage** (see the §10 phase table). No scope creep into later
    phases.
 2. Add/extend a **test** that proves your stage's "Verifiable by" cell.
-3. **Verify** it compiles and the relevant v2 test passes before you report. Never report success
+3. **Verify** it compiles and the relevant v3 test passes before you report. Never report success
    without having run the build/test.
 4. Keep `:network` engine-free; keep hidden-information and no-determinism principles.
 5. If you hit an **open design question** (§11) — e.g. how a command identifies a unit, delta
