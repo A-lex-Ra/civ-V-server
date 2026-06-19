@@ -264,6 +264,14 @@ object PlayerViewProjector {
         civ.publicOpinion.anarchyTurnsRemaining = 0
         civ.publicOpinion.forcedSwitchPending = false
 
+        // --- Tourism influence (BNW Phase 2b, authority-only state — D2) ---
+        // A rival's accumulated influence over *other* civs is computed from culture/buildings the
+        // client cannot see, so it is an authority secret: clear it. The empty map is a valid "no
+        // influence yet" state that the client's setTransients() deserializes cleanly. The viewer's
+        // own tourism lives on the viewer civ (skipped by the civID guard in redactOtherCivSecrets),
+        // and the publicly-observable culture-defense (totalCultureForContests) is left intact.
+        civ.tourism.accumulatedInfluence.clear()
+
         // --- Production / purchasing knowledge held at the civ level ---
         civ.civConstructions.boughtItemsWithIncreasingPrice.clear()
         civ.civConstructions.builtItemsWithIncreasingCost.clear()

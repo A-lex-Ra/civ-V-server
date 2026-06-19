@@ -284,6 +284,39 @@ class PlayerViewProjectorTest {
         )
     }
 
+    @Test
+    fun rivalTourismInfluenceIsScrubbedButViewersIsKept() {
+        // BNW Phase 2b (D2): tourism influence is authority-only state — a rival civ's accumulated
+        // influence over OTHER civs must be scrubbed from the wire view (it's computed from
+        // culture/buildings the client can't see), while the viewer's own influence stays intact and
+        // the publicly-observable culture-defense (totalCultureForContests) is left alone.
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        // B (a rival of the viewer A) has tourism influence over some third civ, plus a culture score.
+        civB.tourism.accumulatedInfluence["SomeCiv"] = 50
+        civB.totalCultureForContests = 321
+        // A (the viewer) also has tourism influence, which must survive.
+        civA.tourism.accumulatedInfluence["SomeCiv"] = 40
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+
+        val bInView = projectedCiv(viewForA, civB.civID)
+        assertTrue(
+            "Rival B's accumulated tourism influence must be scrubbed",
+            bInView.tourism.accumulatedInfluence.isEmpty()
+        )
+        assertEquals(
+            "Rival B's publicly-observable culture-defense must be preserved",
+            321, bInView.totalCultureForContests
+        )
+
+        val aInView = projectedCiv(viewForA, civA.civID)
+        assertEquals(
+            "Viewer A's own accumulated tourism influence must be preserved",
+            40, aInView.tourism.accumulatedInfluence["SomeCiv"]
+        )
+    }
+
     // endregion
 
     // region Priority 2 — seen enemy city interior

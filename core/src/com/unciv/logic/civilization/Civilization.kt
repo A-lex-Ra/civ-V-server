@@ -157,6 +157,8 @@ class Civilization : IsPartOfGameInfoSerialization {
     var ruinsManager = RuinsManager()
     /** BNW Phase 2a — authority-only ideological public-opinion state (D2). */
     var publicOpinion = PublicOpinionManager()
+    /** BNW Phase 2b — authority-only per-rival tourism-influence state (D2). */
+    var tourism = TourismManager()
     var diplomacy = HashMap<String, DiplomacyManager>()
     var proximity = HashMap<String, Proximity>()
     val popupAlerts = ArrayList<PopupAlert>()
@@ -297,6 +299,7 @@ class Civilization : IsPartOfGameInfoSerialization {
         toReturn.greatPeople = greatPeople.clone()
         toReturn.ruinsManager = ruinsManager.clone()
         toReturn.publicOpinion = publicOpinion.clone()
+        toReturn.tourism = tourism.clone()
         toReturn.espionageManager = espionageManager.clone()
         toReturn.victoryManager = victoryManager.clone()
         toReturn.allyCivName = allyCivName
@@ -942,6 +945,7 @@ class Civilization : IsPartOfGameInfoSerialization {
         tech.setTransients(this)
         ruinsManager.setTransients(this)
         publicOpinion.setTransients(this)
+        tourism.setTransients(this)
         espionageManager.setTransients(this)
         victoryManager.civInfo = this
 

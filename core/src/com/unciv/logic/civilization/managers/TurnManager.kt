@@ -47,6 +47,9 @@ class TurnManager(val civInfo: Civilization) {
         // down any post-switch anarchy (Increment 2); the [-100]% temporary uniques expire on their own.
         civInfo.publicOpinion.decrementAnarchy()
         civInfo.publicOpinion.recompute(civInfo.gameInfo.getIdeologicalPressureSource())
+        // BNW Phase 2b — accumulate per-rival tourism influence (authority-only, D2/D6), after
+        // public-opinion and before stats so the influence is current for victory/projection.
+        civInfo.tourism.recompute()
         civInfo.updateStatsForNextTurn() // for things that change when turn passes e.g. golden age, city state influence
 
         // Do this after updateStatsForNextTurn but before cities.startTurn
