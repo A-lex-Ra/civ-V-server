@@ -688,4 +688,35 @@ sealed interface GameCommand {
     ) : GameCommand
 
     // endregion
+
+    // region Events
+
+    /**
+     * The acting civ resolves a pending ruleset [Event][com.unciv.models.ruleset.Event] by picking one
+     * of its choices. This is the event analogue of [DemandResponse]: both answer a `PopupAlert` that
+     * the authority recorded on the acting civ.
+     *
+     * An `Alert`-presentation event fires during inter-turn processing and enqueues a
+     * `PopupAlert(AlertType.Event, "<eventName>[<split>unitId=<id>]")` on the acting civ — which a human
+     * joiner sees in their filtered view but, until this command, could only resolve **locally** on
+     * their throwaway snapshot (never on the canonical state). `None`-presentation events and AI civs
+     * auto-resolve on the authority and never need this command.
+     *
+     * [eventName] keys the pending alert and `ruleset.events`. [choiceIndex] is the index into the
+     * event's full `choices` list (stable across host/joiner since both share the ruleset, and matching
+     * choices are filtered from that same list in order). [unitId] is the optional unit the event is
+     * bound to (e.g. a Great Musician's concert tour), as encoded in the alert.
+     *
+     * Validated on the authority against the pending alert and the choice's current conditions, then
+     * applied via `EventChoice.triggerChoice(civ, unit)`; the alert is consumed on success.
+     */
+    @Serializable
+    @SerialName("resolveEvent")
+    data class ResolveEvent(
+        val eventName: String,
+        val choiceIndex: Int,
+        val unitId: Int? = null
+    ) : GameCommand
+
+    // endregion
 }

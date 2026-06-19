@@ -2,13 +2,17 @@ package com.unciv.logic.multiplayer.v3
 
 import com.badlogic.gdx.Gdx
 import com.unciv.UncivGame
+import com.unciv.logic.civilization.AlertType
 import com.unciv.logic.civilization.Civilization
+import com.unciv.logic.civilization.PopupAlert
 import com.unciv.logic.files.UncivFiles
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
 import com.unciv.logic.multiplayer.v3.command.CommandException
 import com.unciv.logic.multiplayer.v3.command.CommandExecutor
 import com.unciv.models.UnitActionType
+import com.unciv.models.ruleset.Event
+import com.unciv.models.ruleset.EventChoice
 import com.unciv.network.command.GameCommand
 import com.unciv.testing.GdxTestRunner
 import com.unciv.testing.TestGame
@@ -314,6 +318,72 @@ class CommandCatalogueTest {
         }
 
         assertEquals(defenderHealthBefore, defender.health)
+    }
+
+    // endregion
+    // region ResolveEvent
+
+    /**
+     * Registers a single-choice `Alert` event in the game's ruleset whose only choice grants gold, and
+     * queues its `PopupAlert(AlertType.Event, name)` on [civInfo] — the exact state an `Alert` event
+     * leaves behind on the authority after inter-turn processing, ready for a `ResolveEvent` command.
+     */
+    private fun addPendingGoldEvent(name: String, gold: Int = 100) {
+        val event = Event()
+        event.name = name
+        val choice = EventChoice()
+        choice.name = "$name-choice-0"
+        choice.uniques.add("Gain [$gold] [Gold]")
+        event.choices.add(choice)
+        testGame.gameInfo.ruleset.events[name] = event
+        civInfo.popupAlerts.add(PopupAlert(AlertType.Event, name))
+    }
+
+    @Test
+    fun resolveEventAppliesChosenBranchAndConsumesAlert() {
+        addPendingGoldEvent("Test Gold Event")
+        val goldBefore = civInfo.gold
+
+        executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.ResolveEvent("Test Gold Event", 0))
+
+        assertTrue("The chosen branch's Gain-Gold trigger should have run on the canonical civ",
+            civInfo.gold > goldBefore)
+        assertTrue("The resolved event alert should be consumed",
+            civInfo.popupAlerts.none { it.type == AlertType.Event })
+    }
+
+    @Test
+    fun resolveEventWithNoPendingAlertIsRejectedAndStateUnchanged() {
+        // The event exists in the ruleset but no PopupAlert is queued -> there is nothing to resolve.
+        val event = Event().apply {
+            name = "Unqueued Event"
+            choices.add(EventChoice().apply { name = "c"; uniques.add("Gain [50] [Gold]") })
+        }
+        testGame.gameInfo.ruleset.events["Unqueued Event"] = event
+        val goldBefore = civInfo.gold
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.ResolveEvent("Unqueued Event", 0))
+        }
+        assertEquals("A rejected event resolution must not change state", goldBefore, civInfo.gold)
+    }
+
+    @Test
+    fun resolveEventWithInvalidChoiceIndexIsRejectedAndAlertKept() {
+        addPendingGoldEvent("Index Event")
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.ResolveEvent("Index Event", 5))
+        }
+        assertTrue("The alert must remain pending after a rejected resolution",
+            civInfo.popupAlerts.any { it.type == AlertType.Event })
+    }
+
+    @Test
+    fun resolveUnknownEventIsRejected() {
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.ResolveEvent("No Such Event", 0))
+        }
     }
 
     // endregion

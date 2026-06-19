@@ -3,8 +3,10 @@ package com.unciv.logic.multiplayer.v3
 import com.badlogic.gdx.Gdx
 import com.unciv.UncivGame
 import com.unciv.logic.GameInfo
+import com.unciv.logic.civilization.AlertType
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.PlayerType
+import com.unciv.logic.civilization.PopupAlert
 import com.unciv.logic.files.UncivFiles
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
@@ -16,6 +18,7 @@ import com.unciv.network.game.GameFrame
 import com.unciv.testing.GdxTestRunner
 import com.unciv.testing.TestGame
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -116,6 +119,27 @@ class GameSessionTest {
         assertEquals("Legal command must move the unit on the canonical state", to, unit.currentTile)
         assertTrue("A legal command must emit no CommandRejected",
             emitted.none { it.second is GameFrame.CommandRejected })
+    }
+
+    @Test
+    fun snapshotKeepsCommandResolvableAlertsButClearsInformationalOnes() {
+        // Queue three alerts on A's canonical civ: an Event and a demand — both resolved by a player
+        // command (ResolveEvent / DemandResponse) and therefore must SURVIVE the snapshot so the
+        // resolving command can still find them — plus a fire-once informational WarDeclaration.
+        civA.popupAlerts.add(PopupAlert(AlertType.Event, "Some Event"))
+        civA.popupAlerts.add(PopupAlert(AlertType.DemandToNotAttackUs, civB.civID))
+        civA.popupAlerts.add(PopupAlert(AlertType.WarDeclaration, civB.civName))
+
+        // A resync projects + encodes + sends A a snapshot, then runs the canonical alert clear.
+        session.onFrame(GameFrame.ResyncRequest(playerA))
+
+        val remaining = civA.popupAlerts.map { it.type }.toSet()
+        assertTrue("An Event alert must persist until its ResolveEvent command consumes it",
+            AlertType.Event in remaining)
+        assertTrue("A demand alert must persist until its DemandResponse command consumes it",
+            AlertType.DemandToNotAttackUs in remaining)
+        assertFalse("A fire-once informational alert must be cleared after the snapshot",
+            AlertType.WarDeclaration in remaining)
     }
 
     @Test

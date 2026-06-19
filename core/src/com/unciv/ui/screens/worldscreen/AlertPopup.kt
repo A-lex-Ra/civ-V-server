@@ -688,7 +688,10 @@ class AlertPopup(
         
         
         val event = gameInfo.ruleset.events[eventName] ?: return false
-        val render = RenderEvent(event, worldScreen, unit) { close() }
+        // sendV3Command = true: this event came from a real PopupAlert(AlertType.Event), so under
+        // multiplayer-v3 the chosen branch must be resolved on the authority (RenderEvent sends a
+        // GameCommand.ResolveEvent). The floating tutorial-task RenderEvent leaves this false.
+        val render = RenderEvent(event, worldScreen, unit, sendV3Command = true) { close() }
         if (!render.isValid) return false
         add(render).pad(0f).row()
         return true

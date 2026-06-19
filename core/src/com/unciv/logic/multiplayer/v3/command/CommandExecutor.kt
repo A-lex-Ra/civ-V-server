@@ -1,5 +1,6 @@
 package com.unciv.logic.multiplayer.v3.command
 
+import com.unciv.Constants
 import com.unciv.GUI
 import com.unciv.logic.GameInfo
 import com.unciv.logic.automation.unit.UnitAutomation
@@ -8,6 +9,7 @@ import com.unciv.logic.battle.MapUnitCombatant
 import com.unciv.logic.battle.TargetHelper
 import com.unciv.logic.city.City
 import com.unciv.logic.city.CityFocus
+import com.unciv.logic.civilization.AlertType
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.diplomacy.Demand
 import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
@@ -21,6 +23,7 @@ import com.unciv.models.ruleset.Belief
 import com.unciv.models.ruleset.BeliefType
 import com.unciv.models.ruleset.INonPerpetualConstruction
 import com.unciv.models.stats.Stat
+import com.unciv.models.ruleset.unique.GameContext
 import com.unciv.models.ruleset.unique.UniqueTarget
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.network.command.GameCommand
@@ -108,6 +111,7 @@ class CommandExecutor {
             is GameCommand.EnhanceReligion -> executeEnhanceReligion(gameInfo, playerCivId, command)
             is GameCommand.SpreadReligion -> executeSpreadReligion(gameInfo, playerCivId, command)
             is GameCommand.RemoveHeresy -> executeRemoveHeresy(gameInfo, playerCivId, command)
+            is GameCommand.ResolveEvent -> executeResolveEvent(gameInfo, playerCivId, command)
             is GameCommand.EndTurn ->
                 // Inter-turn processing (GameInfo.nextTurn) is owned by the session/authority loop,
                 // not the executor (see docs/multiplayer-v3.md Phase 3).
@@ -1257,6 +1261,63 @@ class CommandExecutor {
             }
         }
         return beliefs
+    }
+
+    // endregion
+
+    // region events
+
+    /**
+     * The acting civ resolves a pending ruleset `Event` by picking one of its choices — the event
+     * analogue of [executeDemandResponse]. An `Alert`-presentation event raised on this civ during
+     * inter-turn processing recorded a `PopupAlert(AlertType.Event, "<name>[<split>unitId=<id>]")`; the
+     * human player saw it in their filtered view and is now answering it. (`None`-presentation events and
+     * AI civs auto-resolve on the authority inside the trigger, so they never reach here.)
+     *
+     * Mirrors `RenderEvent.addChoice` + `EventChoice.triggerChoice`, but on the canonical state: it
+     * locates the pending alert, validates the chosen choice is currently selectable for this civ, runs
+     * the choice's triggerable uniques, and consumes the alert.
+     */
+    private fun executeResolveEvent(gameInfo: GameInfo, playerCivId: String, command: GameCommand.ResolveEvent) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+
+        val event = gameInfo.ruleset.events[command.eventName]
+            ?: throw CommandException("Unknown event '${command.eventName}'")
+
+        // The event must still be pending as a PopupAlert on the acting civ (the alert's value encodes
+        // the event name and, optionally, the bound unit id). When the command targets a specific unit we
+        // also match that id, so two same-named unit-bound events can't be confused. Persisting actionable
+        // alerts past the snapshot (AlertType.isResolvedByPlayerCommand) is what keeps this findable.
+        val pendingAlert = actingCiv.popupAlerts.firstOrNull { alert ->
+            if (alert.type != AlertType.Event) return@firstOrNull false
+            val segments = alert.value.split(Constants.stringSplitCharacter)
+            if (segments.first() != command.eventName) return@firstOrNull false
+            val alertUnitId = segments.drop(1)
+                .firstOrNull { it.startsWith("unitId=") }
+                ?.substringAfter("unitId=")?.toIntOrNull()
+            command.unitId == null || command.unitId == alertUnitId
+        } ?: throw CommandException("No pending event '${command.eventName}' for '$playerCivId'")
+
+        // The optional unit the event is bound to. May be null if it has since died — handled leniently,
+        // exactly as the single-player AlertPopup.addEvent path does (it resolves with a null unit).
+        val unit = command.unitId?.let { actingCiv.units.getUnitById(it) }
+
+        // Pick the chosen branch by its index into the event's FULL choices list. This is stable across
+        // host/joiner (both share the ruleset) and the UI filtered its matching choices from this same
+        // list in order, so the rendered index maps back here unchanged.
+        val choice = event.choices.getOrNull(command.choiceIndex)
+            ?: throw CommandException("Invalid choice index ${command.choiceIndex} for event '${command.eventName}'")
+
+        // The choice must actually be selectable for this civ right now (mirrors Event.getMatchingChoices,
+        // which is what the UI offered) — reject a stale or forged pick whose conditions no longer hold.
+        if (!choice.matchesConditions(GameContext(actingCiv, unit = unit)))
+            throw CommandException(
+                "Choice ${command.choiceIndex} of event '${command.eventName}' is not available to '$playerCivId'"
+            )
+
+        // Apply the chosen branch on the canonical state, then consume the alert so it isn't re-presented.
+        choice.triggerChoice(actingCiv, unit)
+        actingCiv.popupAlerts.remove(pendingAlert)
     }
 
     // endregion

@@ -145,6 +145,11 @@ class GameSession(
         is GameCommand.AttackUnit,
         is GameCommand.FoundCity,
         is GameCommand.BuyTile -> true
+        // Resolving an event applies its (possibly random, possibly unit-granting/tile-revealing) effect
+        // on the authority and consumes the pending alert. Push a fresh snapshot NOW so the actor sees
+        // the authoritative outcome immediately — replacing the client's optimistic local resolution —
+        // and so the now-consumed Event alert disappears from their view rather than re-prompting.
+        is GameCommand.ResolveEvent -> true
         else -> false
     }
 
@@ -321,14 +326,21 @@ class GameSession(
         val civ = gameInfo.getCivilizationOrNull(civId) ?: return
         val projected = PlayerViewProjector.projectFor(gameInfo, civId)
         val bytes = GameInfoCodec.encode(projected)
-        // Popup alerts are one-shot UI events (the StartIntro "Let's begin!", war declarations,
+        // Most popup alerts are one-shot UI events (the StartIntro "Let's begin!", war declarations,
         // tech-researched, …). The client shows them from THIS snapshot and discards them locally, but
         // it has no channel to tell the authority it did. So once a snapshot carrying them has been
         // built (the projected deep copy above already captured them), drop them from the canonical civ
         // — otherwise every later PlayerView re-delivers and re-shows them, which is the "welcome modal
         // pops up at the start of every turn" bug. Single-player has the same fire-once semantics: the
         // UI removes each alert as it shows it.
-        civ.popupAlerts.clear()
+        //
+        // EXCEPTION: alerts a player resolves by sending a command back (demands -> DemandResponse,
+        // ruleset events -> ResolveEvent) must NOT be cleared here. Clearing them fire-once destroys the
+        // pending alert before the player's resolving command can round-trip — the executor would then
+        // find nothing to resolve (this silently broke DemandResponse in real v3 play). Such alerts stay
+        // on the canonical civ until their resolving command consumes them (and are re-delivered each
+        // snapshot until then, so an unresolved event/demand keeps prompting — which is correct).
+        civ.popupAlerts.removeAll { !it.type.isResolvedByPlayerCommand }
         outbound(
             playerId,
             GameFrame.PlayerView(
