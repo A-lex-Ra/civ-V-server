@@ -382,6 +382,12 @@ enum class UniqueType(
     // type (Writing/Art/Music). Read by GreatWorkSlotProvider to derive slots; no other engine effect.
     ProvidesGreatWorkSlots("Provides [amount] [greatWorkSlotType] Great Work slots", UniqueTarget.Building),
 
+    // BNW Phase 2c (Increment 5) — a Theming bonus this building grants when the Great Works filling its
+    // slots all satisfy [greatWorkThemingCondition] (of the same era / by distinct artists / from the same
+    // civilization / all filled). [stats] is the Culture (etc.) bonus; tourism is added separately. Read by
+    // GreatWorkTheming; multiple uniques on one building are AND-ed.
+    GreatWorkThemingBonus("Provides a Theming bonus of [stats] when its Great Works are [greatWorkThemingCondition]", UniqueTarget.Building),
+
     DestroyedWhenCityCaptured("Destroyed when the city is captured", UniqueTarget.Building),
     NotDestroyedWhenCityCaptured("Never destroyed when the city is captured", UniqueTarget.Building),
     GoldFromCapturingCity("[relativeAmount]% Gold given to enemy if city is captured", UniqueTarget.Building),

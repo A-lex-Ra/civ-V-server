@@ -20,6 +20,7 @@ import com.unciv.testing.GdxTestRunner
 import com.unciv.testing.TestGame
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -521,6 +522,141 @@ class CommandCatalogueTest {
 
         assertThrows(CommandException::class.java) {
             executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.SwitchIdeology("No Such Branch"))
+        }
+    }
+
+    // endregion
+
+    // region MoveGreatWork (BNW Phase 2c — Increment 3)
+
+    /** Build a building named [name] carrying [uniques], register it in the ruleset, add it to [city]. */
+    private fun addBuildingNamed(
+        city: com.unciv.logic.city.City, name: String, vararg uniques: String
+    ): com.unciv.models.ruleset.Building {
+        val building = testGame.createBuilding(*uniques)
+        testGame.ruleset.buildings.remove(building.name)
+        building.name = name
+        testGame.ruleset.buildings[name] = building
+        city.cityConstructions.addBuilding(building)
+        return building
+    }
+
+    /** Register a fresh Art Great Work created by [civInfo], returning it. */
+    private fun makeArtWork(): com.unciv.logic.civilization.managers.GreatWork {
+        val manager = testGame.gameInfo.greatWorkManager
+        val work = com.unciv.logic.civilization.managers.GreatWork().apply {
+            id = manager.newId()
+            type = com.unciv.models.ruleset.GreatWorkType.Art
+            creatingCivName = civInfo.civName
+            name = "Work-$id"
+        }
+        manager.registerWork(work)
+        return work
+    }
+
+    @Test
+    fun moveGreatWorkPlacesWorkInTheDestinationSlot() {
+        val cityTile = testGame.tileMap[0, 0]
+        val city = testGame.addCity(civInfo, cityTile)
+        addBuildingNamed(city, "TestMuseum", "Provides [2] [Art] Great Work slots")
+        val manager = testGame.gameInfo.greatWorkManager
+
+        val work = makeArtWork()
+        // Place it in slot 0; move it to slot 1.
+        val slot0 = com.unciv.logic.civilization.managers.GreatWorkSlotProvider.getSlotsForCiv(civInfo)
+            .first { it.buildingName == "TestMuseum" && it.slotIndex == 0 }
+        val slot1 = com.unciv.logic.civilization.managers.GreatWorkSlotProvider.getSlotsForCiv(civInfo)
+            .first { it.buildingName == "TestMuseum" && it.slotIndex == 1 }
+        manager.placeWork(work, slot0)
+
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.MoveGreatWork(work.id, cityTile.position.x, cityTile.position.y, "TestMuseum", 1)
+        )
+
+        assertEquals("Work must now sit in slot 1", work, manager.getWorkInSlot(slot1))
+        assertNull("Old slot 0 must now be empty", manager.getWorkInSlot(slot0))
+    }
+
+    @Test
+    fun moveGreatWorkSwapsWithASameCivWorkInTheDestination() {
+        val cityTile = testGame.tileMap[0, 0]
+        val city = testGame.addCity(civInfo, cityTile)
+        addBuildingNamed(city, "TestMuseum", "Provides [2] [Art] Great Work slots")
+        val manager = testGame.gameInfo.greatWorkManager
+
+        val workA = makeArtWork()
+        val workB = makeArtWork()
+        val slot0 = com.unciv.logic.civilization.managers.GreatWorkSlotProvider.getSlotsForCiv(civInfo)
+            .first { it.slotIndex == 0 }
+        val slot1 = com.unciv.logic.civilization.managers.GreatWorkSlotProvider.getSlotsForCiv(civInfo)
+            .first { it.slotIndex == 1 }
+        manager.placeWork(workA, slot0)
+        manager.placeWork(workB, slot1)
+
+        // Move A onto B's slot -> swap.
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.MoveGreatWork(workA.id, cityTile.position.x, cityTile.position.y, "TestMuseum", 1)
+        )
+
+        assertEquals("A must now be in slot 1", workA, manager.getWorkInSlot(slot1))
+        assertEquals("B must have been displaced into slot 0", workB, manager.getWorkInSlot(slot0))
+    }
+
+    @Test
+    fun moveGreatWorkNotOwnedIsRejectedAndStateUnchanged() {
+        val cityTile = testGame.tileMap[0, 0]
+        val city = testGame.addCity(civInfo, cityTile)
+        addBuildingNamed(city, "TestMuseum", "Provides [1] [Art] Great Work slots")
+        val manager = testGame.gameInfo.greatWorkManager
+
+        // A work created by a DIFFERENT civ, unplaced -> not owned by civInfo.
+        val foreignWork = com.unciv.logic.civilization.managers.GreatWork().apply {
+            id = manager.newId()
+            type = com.unciv.models.ruleset.GreatWorkType.Art
+            creatingCivName = enemyCiv.civName
+        }
+        manager.registerWork(foreignWork)
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.MoveGreatWork(foreignWork.id, cityTile.position.x, cityTile.position.y, "TestMuseum", 0)
+            )
+        }
+        assertTrue("No placement may have been created on a rejected move", manager.slotPlacements.isEmpty())
+    }
+
+    @Test
+    fun moveGreatWorkWithTypeMismatchIsRejected() {
+        val cityTile = testGame.tileMap[0, 0]
+        val city = testGame.addCity(civInfo, cityTile)
+        // Only a Writing slot exists; an Art work does not fit it.
+        addBuildingNamed(city, "TestLibrary", "Provides [1] [Writing] Great Work slots")
+        val manager = testGame.gameInfo.greatWorkManager
+        val artWork = makeArtWork()
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.MoveGreatWork(artWork.id, cityTile.position.x, cityTile.position.y, "TestLibrary", 0)
+            )
+        }
+        assertTrue("No placement may have been created on a type-mismatched move", manager.slotPlacements.isEmpty())
+    }
+
+    @Test
+    fun moveUnknownGreatWorkIsRejected() {
+        val cityTile = testGame.tileMap[0, 0]
+        val city = testGame.addCity(civInfo, cityTile)
+        addBuildingNamed(city, "TestMuseum", "Provides [1] [Art] Great Work slots")
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.MoveGreatWork("gw-nonexistent", cityTile.position.x, cityTile.position.y, "TestMuseum", 0)
+            )
         }
     }
 

@@ -630,6 +630,16 @@ enum class UniqueParameterType(
         override val staticKnownValues = setOf("Writing", "Art", "Music")
     },
 
+    /** Used by [UniqueType.GreatWorkThemingBonus] (BNW Great Works), implemented by [com.unciv.logic.civilization.managers.GreatWorkTheming].
+     *  A fixed vocabulary of matching conditions evaluated over the Great Works filling a building's slots. */
+    GreatWorkThemingCondition("greatWorkThemingCondition", "of the same era",
+        "`of the same era`, `by distinct artists`, `from the same civilization`, or `all filled` - the Great Work matching condition for a Theming bonus",
+        severityDefault = UniqueType.UniqueParameterErrorSeverity.RulesetInvariant
+    ) {
+        override val staticKnownValues =
+            setOf("of the same era", "by distinct artists", "from the same civilization", "all filled")
+    },
+
     /** Mod declarative compatibility: Define Mod relations by their name. */
     ModName("modFilter",
         docExample = "DeCiv Redux",

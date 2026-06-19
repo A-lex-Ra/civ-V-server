@@ -109,6 +109,7 @@ object PlayerViewProjector {
         redactSeenEnemyCityInteriors(projected, viewingCivId, visibility)
         redactBarbarianEncampments(projected, visibility)
         redactOtherCivSecrets(projected, viewingCivId)
+        redactGreatWorkPlacements(projected, viewingCivId, visibility)
         redactTileContents(projected, visibility, rememberedImprovements)
 
         return projected
@@ -362,6 +363,48 @@ object PlayerViewProjector {
         //   tiles. It cannot simply be nulled (it is a non-null lateinit the client's setTransients
         //   requires) — fully hiding it would mean substituting a neutral placeholder terrain and is
         //   left for a follow-up to avoid corrupting the cloned map's structural invariants here.
+    }
+
+    /**
+     * BNW Phase 2c — Increment 3 (D5). Great Works are *public* (names/types/theming/owner are visible
+     * in the Culture Overview), so the GameInfo-level [com.unciv.logic.civilization.managers.GreatWorkManager]
+     * registry ([com.unciv.logic.civilization.managers.GreatWorkManager.works]) is NOT scrubbed.
+     *
+     * The one leak to close: a *placement* whose host city the viewer has never explored would reveal
+     * that an unseen rival city exists (and where). So we drop every placement whose slot belongs to a
+     * civ other than the viewer AND whose city location the viewer has not explored — leaving the
+     * [com.unciv.logic.civilization.managers.GreatWork] object itself intact in the registry.
+     *
+     * This runs once per projection (the manager is GameInfo-level, not per-civ), so it lives here and
+     * NOT inside the per-civ [scrubCivSecrets]. The slot key is the flat
+     * `"$civId|$x,$y|$building|$idx"` produced by `GreatWorkSlot.key()`; we parse the owning civId and
+     * the city `(x,y)` back out of it to test against the viewer's explored set.
+     */
+    private fun redactGreatWorkPlacements(
+        projected: GameInfo,
+        viewerId: String,
+        visibility: VisibilitySnapshot
+    ) {
+        val placements = projected.greatWorkManager.slotPlacements
+        if (placements.isEmpty()) return
+
+        val keysToDrop = placements.keys.filter { key ->
+            // key = "civId|x,y|building|idx". civNames don't contain '|', so split on '|' is safe.
+            val segments = key.split('|')
+            if (segments.size < 2) return@filter false // malformed — leave it alone
+            val slotCivId = segments[0]
+            if (slotCivId == viewerId) return@filter false // the viewer's own placements are always kept
+
+            val coords = segments[1].split(',')
+            val x = coords.getOrNull(0)?.toIntOrNull()
+            val y = coords.getOrNull(1)?.toIntOrNull()
+            if (x == null || y == null) return@filter false // malformed — leave it alone
+
+            // Drop only when the viewer has NOT explored the host city's location.
+            !visibility.hasExploredPosition(HexCoord(x, y))
+        }.toList()
+
+        for (key in keysToDrop) placements.remove(key)
     }
 
     /**

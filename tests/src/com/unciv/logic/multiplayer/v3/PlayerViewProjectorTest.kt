@@ -417,4 +417,67 @@ class PlayerViewProjectorTest {
     }
 
     // endregion
+
+    // region Great Work placements (BNW Phase 2c — Increment 3, D5)
+
+    /** Register an Art Great Work owned by [owner] placed in a slot at [cityLocation]; returns the slot. */
+    private fun placeWorkInCity(
+        owner: Civilization, cityLocation: com.unciv.logic.map.HexCoord
+    ): com.unciv.logic.civilization.managers.GreatWorkSlot {
+        val manager = testGame.gameInfo.greatWorkManager
+        val work = com.unciv.logic.civilization.managers.GreatWork().apply {
+            id = manager.newId()
+            type = com.unciv.models.ruleset.GreatWorkType.Art
+            creatingCivName = owner.civName
+            name = "RivalMasterpiece"
+        }
+        manager.registerWork(work)
+        val slot = com.unciv.logic.civilization.managers.GreatWorkSlot(
+            owner.civName, cityLocation, "Museum", 0, com.unciv.models.ruleset.GreatWorkType.Art
+        )
+        manager.placeWork(work, slot)
+        return slot
+    }
+
+    @Test
+    fun rivalGreatWorkPlacementInUnexploredCityIsScrubbedButRegistryKept() {
+        testGame.addUnit("Warrior", civA, centerTile)
+        // B's city sits on a far tile A has never explored.
+        val far = farTile()
+        val cityB: City = testGame.addCity(civB, far)
+        val slot = placeWorkInCity(civB, cityB.location)
+        val workId = testGame.gameInfo.greatWorkManager.slotPlacements[slot.key()]!!
+
+        testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
+        assertFalse("B's city tile must be unexplored by A", far.isExplored(civA))
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+
+        assertFalse(
+            "B's placement in a city A never explored must be scrubbed from A's view",
+            viewForA.greatWorkManager.slotPlacements.containsKey(slot.key())
+        )
+        assertNotNull(
+            "The GreatWork object itself must remain in the registry (works are public)",
+            viewForA.greatWorkManager.getWork(workId)
+        )
+    }
+
+    @Test
+    fun ownersGreatWorkPlacementIsKeptInOwnProjection() {
+        testGame.addUnit("Warrior", civB, centerTile)
+        val far = farTile()
+        val cityB: City = testGame.addCity(civB, far)
+        val slot = placeWorkInCity(civB, cityB.location)
+
+        // B is the viewer: its own placement must survive (the civId-guard keeps it regardless of fog).
+        val viewForB = PlayerViewProjector.projectFor(testGame.gameInfo, civB.civID)
+
+        assertTrue(
+            "B's own placement must be kept in B's own view",
+            viewForB.greatWorkManager.slotPlacements.containsKey(slot.key())
+        )
+    }
+
+    // endregion
 }

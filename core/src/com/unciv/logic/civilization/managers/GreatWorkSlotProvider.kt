@@ -2,6 +2,7 @@ package com.unciv.logic.civilization.managers
 
 import com.unciv.logic.civilization.Civilization
 import com.unciv.models.ruleset.GreatWorkType
+import com.unciv.models.ruleset.Ruleset
 import com.unciv.models.ruleset.unique.UniqueType
 
 /**
@@ -67,6 +68,22 @@ object GreatWorkSlotProvider {
             .filter { it.key() !in placements && type.fitsSlot(it.slotType) }
             .sortedWith(compareBy({ cityOrder[it.cityLocation] ?: Int.MAX_VALUE }, { it.buildingName }, { it.slotIndex }))
     }
+
+    /**
+     * BNW Phase 2c — Increment 4. Cheap probe: does [ruleset] use the Great-Work slot concept at all?
+     * True when any building either carries the [UniqueType.ProvidesGreatWorkSlots] data unique
+     * (the durable path, Increment 6) OR is one of the bundled hidden slot sub-buildings whose name
+     * matches the [hiddenSlotBuildingRegex] pattern (the D3 fallback). A non-BNW ruleset has neither, so
+     * the Great-Work creation path is skipped and the legacy stockpile path is left untouched.
+     *
+     * Result is intrinsic to the ruleset (independent of any civ's built buildings), so callers may
+     * cache it per ruleset if they wish; this scan is cheap relative to a Great-Person action.
+     */
+    fun rulesetHasGreatWorkSlots(ruleset: Ruleset): Boolean =
+        ruleset.buildings.values.any { building ->
+            building.hasUnique(UniqueType.ProvidesGreatWorkSlots) ||
+                hiddenSlotBuildingRegex.matches(building.name)
+        }
 
     /** "Writing"/"Art"/"Music" → the matching [GreatWorkType]; `null` if unrecognized. */
     private fun parseSlotType(word: String): GreatWorkType? =

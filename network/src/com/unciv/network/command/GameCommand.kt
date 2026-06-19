@@ -741,4 +741,31 @@ sealed interface GameCommand {
     ) : GameCommand
 
     // endregion
+
+    // region Great Works
+
+    /**
+     * BNW Phase 2c — Increment 3. The acting civ moves one of its Great Works (identified by the stable
+     * [workId]) into the slot at index [toSlotIndex] of building [toBuildingName] in its city centered on
+     * ([toCityX], [toCityY]).
+     *
+     * The *source* slot is derived on the authority from where [workId] currently sits, so it isn't on
+     * the wire. If the destination slot is already occupied by ANOTHER work owned by the same civ, the
+     * two works are swapped (the displaced work takes the moved work's old slot). Validated on the
+     * authority (`CommandExecutor.executeMoveGreatWork`): the acting civ must own the work, the
+     * destination slot must exist and be owned by the acting civ, the work's type must fit the slot, and
+     * the destination must not hold another civ's work. A dedicated command (rather than a generic
+     * action) is used because [workId] is a stable registry string the (x,y) conventions can't carry.
+     */
+    @Serializable
+    @SerialName("moveGreatWork")
+    data class MoveGreatWork(
+        val workId: String,
+        val toCityX: Int,
+        val toCityY: Int,
+        val toBuildingName: String,
+        val toSlotIndex: Int
+    ) : GameCommand
+
+    // endregion
 }

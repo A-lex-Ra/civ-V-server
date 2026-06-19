@@ -7,9 +7,12 @@ import com.unciv.logic.city.City
 import com.unciv.logic.civilization.*
 import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
 import com.unciv.logic.civilization.diplomacy.DiplomaticModifiers
+import com.unciv.logic.civilization.managers.GreatWorkCreation
+import com.unciv.logic.civilization.managers.GreatWorkSlotProvider
 import com.unciv.logic.civilization.managers.PolicyManager
 import com.unciv.logic.civilization.managers.ReligionState
 import com.unciv.logic.civilization.managers.TourismManager
+import com.unciv.models.ruleset.GreatWorkType
 import com.unciv.logic.map.HexCoord
 import com.unciv.logic.map.mapgenerator.NaturalWonderGenerator
 import com.unciv.logic.map.mapgenerator.RiverGenerator
@@ -638,6 +641,24 @@ object UniqueTriggerActivation {
                 val resourceName = unique.params[1]
                 val resource = ruleset.tileResources[resourceName] ?: return null
                 if (!resource.isStockpiled) return null
+
+                // BNW Phase 2c — Increment 4. When the resource is a Great-Work resource AND the ruleset
+                // uses the Great-Work slot concept, create a named GreatWork (placed into a free slot,
+                // else banked as the legacy stockpile) instead of the plain stockpile credit. The
+                // creation path runs `amount` times (normally 1). A ruleset with no slot concept (and
+                // any non-Great-Work resource) keeps the legacy stockpile path below, UNCHANGED.
+                val greatWorkType = GreatWorkType.fromResourceName(resourceName)
+                if (greatWorkType != null &&
+                    GreatWorkSlotProvider.rulesetHasGreatWorkSlots(ruleset)
+                ) {
+                    return {
+                        val amount = unique.params[0].toInt()
+                        repeat(amount) {
+                            GreatWorkCreation.createAndPlace(civInfo, greatWorkType, unit)
+                        }
+                        true
+                    }
+                }
 
                 return {
                     val amount = unique.params[0].toInt()

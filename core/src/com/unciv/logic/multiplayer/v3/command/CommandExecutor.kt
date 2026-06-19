@@ -113,6 +113,7 @@ class CommandExecutor {
             is GameCommand.SpreadReligion -> executeSpreadReligion(gameInfo, playerCivId, command)
             is GameCommand.RemoveHeresy -> executeRemoveHeresy(gameInfo, playerCivId, command)
             is GameCommand.ResolveEvent -> executeResolveEvent(gameInfo, playerCivId, command)
+            is GameCommand.MoveGreatWork -> executeMoveGreatWork(gameInfo, playerCivId, command)
             is GameCommand.EndTurn ->
                 // Inter-turn processing (GameInfo.nextTurn) is owned by the session/authority loop,
                 // not the executor (see docs/multiplayer-v3.md Phase 3).
@@ -1375,6 +1376,73 @@ class CommandExecutor {
         // Apply the chosen branch on the canonical state, then consume the alert so it isn't re-presented.
         choice.triggerChoice(actingCiv, unit)
         actingCiv.popupAlerts.remove(pendingAlert)
+    }
+
+    // endregion
+
+    // region great works
+
+    /**
+     * BNW Phase 2c — Increment 3: the acting civ moves one of its Great Works into another of its slots.
+     *
+     * Mirrors [executeAdoptPolicy] / [executeSwitchIdeology] in shape: resolve the subject from the
+     * canonical registry, validate the move is legal, then delegate to the shared
+     * [com.unciv.logic.civilization.managers.GreatWorkManager.moveWork] (which clears the old slot,
+     * swaps with a same-owner work if the destination is occupied, and places the work).
+     *
+     * A move is legal only when:
+     *  - the work [com.unciv.network.command.GameCommand.MoveGreatWork.workId] exists in the registry;
+     *  - the acting civ owns it (it appears in
+     *    [com.unciv.logic.civilization.managers.GreatWorkManager.getWorksOf] for this civ — i.e. it sits
+     *    in one of this civ's slots, or is unplaced and was created by this civ);
+     *  - the destination slot (resolved against
+     *    [com.unciv.logic.civilization.managers.GreatWorkSlotProvider.getSlotsForCiv]) exists and is
+     *    owned by the acting civ;
+     *  - the work's type fits the destination slot type
+     *    ([com.unciv.models.ruleset.GreatWorkType.fitsSlot]); and
+     *  - the destination does not currently hold ANOTHER civ's work.
+     */
+    private fun executeMoveGreatWork(gameInfo: GameInfo, playerCivId: String, command: GameCommand.MoveGreatWork) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val manager = gameInfo.greatWorkManager
+
+        val work = manager.getWork(command.workId)
+            ?: throw CommandException("Unknown Great Work '${command.workId}'")
+
+        // Ownership: the acting civ must own the work (placed in one of its slots, or unplaced+created
+        // by it) — the same definition GreatWorkManager.getWorksOf uses.
+        if (manager.getWorksOf(actingCiv).none { it.id == work.id })
+            throw CommandException("Great Work '${command.workId}' is not owned by '$playerCivId'")
+
+        // Resolve the destination slot against the acting civ's own derived slots. This both proves the
+        // slot exists AND that it is owned by the acting civ (getSlotsForCiv only emits this civ's slots).
+        val destSlot = com.unciv.logic.civilization.managers.GreatWorkSlotProvider.getSlotsForCiv(actingCiv)
+            .firstOrNull {
+                it.cityLocation.x == command.toCityX && it.cityLocation.y == command.toCityY &&
+                    it.buildingName == command.toBuildingName && it.slotIndex == command.toSlotIndex
+            }
+            ?: throw CommandException(
+                "No Great Work slot owned by '$playerCivId' at city (${command.toCityX}, ${command.toCityY}) " +
+                    "building '${command.toBuildingName}' index ${command.toSlotIndex}"
+            )
+
+        // The work's type must fit the destination slot type (Artifact/Art share an Art slot).
+        if (!work.type.fitsSlot(destSlot.slotType))
+            throw CommandException(
+                "Great Work '${command.workId}' (${work.type}) does not fit a ${destSlot.slotType} slot"
+            )
+
+        // If the destination already holds a DIFFERENT work, it must also be owned by the acting civ for
+        // a swap to be legal — reject placing onto another civ's work. (destSlot is one of actingCiv's
+        // slots, so anything in it should be the acting civ's; guard via getWorksOf to be safe.)
+        val occupant = manager.getWorkInSlot(destSlot)
+        if (occupant != null && occupant.id != work.id &&
+            manager.getWorksOf(actingCiv).none { it.id == occupant.id })
+            throw CommandException(
+                "Destination slot is occupied by a Great Work not owned by '$playerCivId'"
+            )
+
+        manager.moveWork(work, destSlot)
     }
 
     // endregion

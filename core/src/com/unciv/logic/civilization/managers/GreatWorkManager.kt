@@ -3,6 +3,7 @@ package com.unciv.logic.civilization.managers
 import com.unciv.logic.GameInfo
 import com.unciv.logic.IsPartOfGameInfoSerialization
 import com.unciv.logic.civilization.Civilization
+import com.unciv.logic.civilization.Tourism.GreatWorksTourismSource
 
 /**
  * BNW Phase 2c — Increment 1. The authoritative, GameInfo-level registry of every [GreatWork] in the
@@ -47,6 +48,14 @@ class GreatWorkManager : IsPartOfGameInfoSerialization {
 
     fun setTransients(gameInfo: GameInfo) {
         this.gameInfo = gameInfo
+
+        // BNW Phase 2c — Increment 5 (D4): register the Great-Works tourism contributor into each civ's
+        // Phase 2b tourism-output seam. This is the single, idempotent registration site — it runs once
+        // per GameInfo.setTransients (after every civ's TourismManager.setTransients), and
+        // GreatWorksTourismSource.register removes any previously-registered marker before re-adding, so
+        // repeated setTransients never double-counts. Other contributors in the list are left intact.
+        for (civ in gameInfo.civilizations)
+            GreatWorksTourismSource.register(civ)
     }
 
     //region Registry
@@ -81,6 +90,37 @@ class GreatWorkManager : IsPartOfGameInfoSerialization {
         slotPlacements[slot.key()]?.let { works[it] }
 
     /**
+     * BNW Phase 2c — Increment 3. Moves [work] into [destSlot].
+     *
+     *  - Clears [work] from whatever slot currently holds it (if any).
+     *  - If [destSlot] is occupied by ANOTHER work that belongs to the same owning civ (same slot
+     *    `civId`), the two works are **swapped**: the displaced work is placed into [work]'s old slot.
+     *  - [work] is then placed into [destSlot].
+     *
+     * Built only from the existing slot-placement primitives ([getWorkInSlot]/[clearSlot]/[placeWork]);
+     * [slotPlacements] is never re-keyed directly here ([GreatWorkSlot.key] stays the single identity).
+     * The caller ([com.unciv.logic.multiplayer.v3.command.CommandExecutor.executeMoveGreatWork]) is
+     * responsible for validating ownership, slot existence and type-fit before calling.
+     */
+    fun moveWork(work: GreatWork, destSlot: GreatWorkSlot) {
+        // The work's current slot (if it sits in one) — used to receive a displaced swap partner.
+        val sourceSlotKey = slotPlacements.entries.firstOrNull { it.value == work.id }?.key
+        val displaced = getWorkInSlot(destSlot)?.takeIf { it.id != work.id }
+
+        // Remove the moving work from its old slot so a self-move (dest == source) cleanly re-places it.
+        if (sourceSlotKey != null) slotPlacements.remove(sourceSlotKey)
+
+        // Place the moving work into the destination (overwrites the displaced work's placement there).
+        placeWork(work, destSlot)
+
+        // If we displaced a work owned by the same civ, drop it into the moving work's old slot key
+        // (reconstructed via slotPlacements, not re-keyed). If there was no source slot the displaced
+        // work simply becomes unplaced (re-banked behaviour is not this method's concern).
+        if (displaced != null && sourceSlotKey != null)
+            slotPlacements[sourceSlotKey] = displaced.id
+    }
+
+    /**
      * The works "owned" by [civ]. We treat ownership as derived from placement plus origin:
      *  1. every work currently placed in a slot whose `civId` is the civ's [Civilization.civName], plus
      *  2. every registered work NOT placed in any slot whose [GreatWork.creatingCivName] == that name.
@@ -101,6 +141,35 @@ class GreatWorkManager : IsPartOfGameInfoSerialization {
             if (isInThisCivsSlot || isUnplacedOurs) result.add(work)
         }
         return result
+    }
+
+    //endregion
+    //region Tourism (Increment 5)
+
+    /**
+     * BNW Phase 2c — Increment 5 (D4). This civ's per-turn Great-Work tourism contribution, fed into the
+     * Phase 2b tourism-output seam ([TourismManager.tourismOutputContributors]) via
+     * [com.unciv.logic.civilization.Tourism.GreatWorksTourismSource]:
+     *
+     *   `2 × (filled slots owned by civ)  +  Σ themed-building theming-tourism`
+     *
+     * A slot is "filled" when its [GreatWorkSlot.key] (one of the civ's own slots) is present in
+     * [slotPlacements]. The theming term sums [GreatWorkTheming.getThemingTourism] over each distinct
+     * (building, city) the civ owns that is currently themed. Returns 0 when the civ has no slots.
+     */
+    fun getTourismContribution(civ: Civilization): Float {
+        val slots = GreatWorkSlotProvider.getSlotsForCiv(civ)
+        if (slots.isEmpty()) return 0f
+
+        val filledCount = slots.count { it.key() in slotPlacements }
+        var total = 2f * filledCount
+
+        // Add the per-themed-building bonus once per distinct (building, city) the civ owns.
+        val distinctBuildings = slots.map { it.buildingName to it.cityLocation }.toHashSet()
+        for ((buildingName, cityLocation) in distinctBuildings)
+            total += GreatWorkTheming.getThemingTourism(civ, buildingName, cityLocation)
+
+        return total
     }
 
     //endregion
