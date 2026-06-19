@@ -907,6 +907,11 @@ enum class UniqueType(
     OneTimeGainProphet("Gain enough Faith for [positiveAmount]% of a Great Prophet", UniqueTarget.Triggerable),
     OneTimeGainTechPercent("Research [relativeAmount]% of [tech]", UniqueTarget.Triggerable),
 
+    // BNW Phase 2b — Increment 5 (concert tour): gain a one-time burst of tourism influence over the
+    // major rival whose territory the (Great Musician) unit currently stands in. Resolved via the
+    // `Perform Concert Tour` event; the unit is consumed by the outer action's <by consuming this unit>.
+    OneTimeGainTourismInfluenceOverNearbyCiv("Gain a large boost of Tourism influence over the civilization whose territory this unit is in", UniqueTarget.Triggerable),
+
     OneTimeTakeOverTilesInRadius("Gain control over [tileFilter] tiles in a [nonNegativeAmount]-tile radius", UniqueTarget.Triggerable),
     OneTimeTakeOverTilesInCity("Gain control over [positiveAmount] tiles [cityFilter]", UniqueTarget.Triggerable),
 

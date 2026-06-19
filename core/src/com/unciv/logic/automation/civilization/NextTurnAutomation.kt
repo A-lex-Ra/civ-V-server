@@ -14,7 +14,9 @@ import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.civilization.NotificationIcon
 import com.unciv.logic.civilization.PopupAlert
+import com.unciv.logic.civilization.Tourism.TourismInfluenceLevel
 import com.unciv.logic.civilization.diplomacy.*
+import com.unciv.logic.civilization.managers.TourismManager
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
 import com.unciv.models.ruleset.MilestoneType
@@ -79,6 +81,8 @@ object NextTurnAutomation {
             protectCityStates(civInfo)
             bullyCityStates(civInfo)
         }
+        if (tradeAndChangeState && civInfo.isMajorCiv())
+            nudgeForCulturalVictory(civInfo) // BNW Phase 2b — Increment 6 (light, guarded; usually a no-op)
         automateUnits(civInfo)  // this is the most expensive part
 
         if (tradeAndChangeState && civInfo.isMajorCiv()) {
@@ -113,6 +117,48 @@ object NextTurnAutomation {
         }
     }
     
+    /**
+     * BNW Phase 2b — Increment 6: a small, guarded nudge toward the cultural victory. No heavy planner —
+     * the data `[-50]% weight ... <when [Cultural] Victory is disabled>` markers already bias tourism
+     * construction. The one thing the data can't do is steer a Great Musician: when a civ is *close* to
+     * being Influential over all living majors (already so over at least one rival), send any free Great
+     * Musician toward the territory of the rival it influences *least*, so the auto-resolved concert tour
+     * (Increment 5) lands where it helps most. Fully guarded: a no-op outside BNW, without the cultural
+     * victory enabled, or when no progress has been made.
+     */
+    private fun nudgeForCulturalVictory(civInfo: Civilization) {
+        // BNW guard: only rulesets with the Tourism resource have the per-rival influence model.
+        if (!civInfo.gameInfo.ruleset.tileResources.containsKey(TourismManager.TOURISM_RESOURCE)) return
+        // Only bother if a cultural victory is actually winnable in this game.
+        if (civInfo.gameInfo.ruleset.victories.values.none { victory ->
+                victory.name in civInfo.gameInfo.gameParameters.victoryTypes &&
+                victory.milestoneObjects.any { it.type == MilestoneType.InfluentialOverAllCivs }
+            }) return
+        if (civInfo.tourism.isInfluentialOverAllMajors()) return // already there; nothing to nudge
+
+        val rivals = civInfo.gameInfo.civilizations.filter {
+            it != civInfo && it.isMajorCiv() && !it.isDefeated()
+        }
+        if (rivals.isEmpty()) return
+        // "Close to" cultural victory: already Influential over at least one rival.
+        val influentialOverAny = rivals.any {
+            civInfo.tourism.getInfluenceLevelOver(it) >= TourismInfluenceLevel.Influential
+        }
+        if (!influentialOverAny) return
+
+        // Target the rival we influence the LEAST (greatest remaining gap), and head Great Musicians there.
+        val leastInfluenced = rivals.minByOrNull { civInfo.tourism.getInfluenceRatioOver(it) } ?: return
+        val targetTile = leastInfluenced.getCapital()?.getCenterTile() ?: return
+
+        for (unit in civInfo.units.getCivUnits().toList()) {
+            if (!unit.isGreatPerson()) continue
+            // A Great Musician is the Great Person able to perform a concert tour (a TriggerEvent action).
+            if (unit.getMatchingUniques(UniqueType.TriggerEvent).none()) continue
+            if (!unit.hasMovement()) continue
+            unit.movement.headTowards(targetTile)
+        }
+    }
+
     private fun respondToPopupAlerts(civInfo: Civilization) {
         for (popupAlert in civInfo.popupAlerts.toList()) { // toList because this can trigger other things that give alerts, like Golden Age
             respondToDemandAlert(civInfo, popupAlert)

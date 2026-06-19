@@ -158,6 +158,17 @@ class TourismManager : IsPartOfGameInfoSerialization {
         }
     }
 
+    /**
+     * BNW Phase 2b — Increment 5 (concert tour): add a large one-time burst of influence over [target]
+     * equal to this civ's current tourism output × [multiplier] (Civ V uses ×10). Authority-only,
+     * resolved through the `Perform Concert Tour` event (`presentation: None`, no command — D7). Clamped
+     * at `≥ 0` for parity with [recompute]; a culture-less / hostile output simply adds nothing.
+     */
+    fun addConcertTourInfluence(target: Civilization, multiplier: Float = CONCERT_TOUR_FACTOR) {
+        val delta = max(0, (getBaseTourismOutput() * multiplier).roundToInt())
+        accumulatedInfluence[target.civName] = (accumulatedInfluence[target.civName] ?: 0) + delta
+    }
+
     /** Accumulated influence over [target] as a fraction of that rival's lifetime culture (D5). Mirrors
      *  the zero-division guard in `Victory.getMoreCountableThanOtherCivPercent`, expressed as a ratio:
      *  with no culture-defense, any positive influence is treated as Dominant-level. */
@@ -187,6 +198,9 @@ class TourismManager : IsPartOfGameInfoSerialization {
 
     companion object {
         const val TOURISM_RESOURCE = "Tourism"
+
+        /** Concert-tour burst factor (Increment 5): influence gained = tourism output × this (Civ V ×10). */
+        const val CONCERT_TOUR_FACTOR = 10f
 
         // Per-target relationship multiplier factors (Increment 3), as tunable named constants.
         private const val OPEN_BORDERS_BONUS = 0.25f

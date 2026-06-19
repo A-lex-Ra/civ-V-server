@@ -9,6 +9,7 @@ import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
 import com.unciv.logic.civilization.diplomacy.DiplomaticModifiers
 import com.unciv.logic.civilization.managers.PolicyManager
 import com.unciv.logic.civilization.managers.ReligionState
+import com.unciv.logic.civilization.managers.TourismManager
 import com.unciv.logic.map.HexCoord
 import com.unciv.logic.map.mapgenerator.NaturalWonderGenerator
 import com.unciv.logic.map.mapgenerator.RiverGenerator
@@ -909,6 +910,27 @@ object UniqueTriggerActivation {
 
                     civInfo.addNotification(notificationText!!, LocationAction(tile?.position), NotificationCategory.General, NotificationIcon.Science)
 
+                    true
+                }
+            }
+
+            UniqueType.OneTimeGainTourismInfluenceOverNearbyCiv -> {
+                // BNW Phase 2b — Increment 5 (concert tour). Boost our accumulated tourism influence
+                // over the major rival whose territory this (Great Musician) unit stands in. The unit is
+                // consumed by the outer action's <by consuming this unit> modifier, not here.
+                if (unit == null) return null
+                val owner = unit.getTile().getOwner()
+                // Only over a *living major rival* — no effect in our own, neutral, or city-state land.
+                if (owner == null || owner == civInfo || !owner.isMajorCiv() || owner.isDefeated()) return null
+
+                return {
+                    civInfo.tourism.addConcertTourInfluence(owner)
+                    val notificationText = getNotificationText(
+                        notification, triggerNotificationText,
+                        "Your concert tour has greatly increased your [${TourismManager.TOURISM_RESOURCE}] influence over [${owner.civName}]!"
+                    )
+                    if (notificationText != null)
+                        civInfo.addNotification(notificationText, MapUnitAction(unit), NotificationCategory.General, owner.civName, "ResourceIcons/${TourismManager.TOURISM_RESOURCE}")
                     true
                 }
             }

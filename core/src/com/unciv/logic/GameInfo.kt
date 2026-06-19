@@ -18,7 +18,9 @@ import com.unciv.logic.city.City
 import com.unciv.logic.civilization.*
 import com.unciv.logic.civilization.PublicOpinion.CivCountPressureSource
 import com.unciv.logic.civilization.PublicOpinion.IdeologicalPressureSource
+import com.unciv.logic.civilization.PublicOpinion.TourismPressureSource
 import com.unciv.logic.civilization.managers.TechManager
+import com.unciv.logic.civilization.managers.TourismManager
 import com.unciv.logic.civilization.managers.TurnManager
 import com.unciv.logic.civilization.managers.VictoryManager
 import com.unciv.logic.github.Github.repoNameToFolderName
@@ -256,9 +258,13 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
      *  with the Uniques of the chosen [speed] and [difficulty][getDifficulty] */
     @Readonly fun getGlobalUniques() = combinedGlobalUniques
 
-    /** BNW Phase 2a (D3) — the current ideological-pressure source for public opinion. Increment 1
-     *  returns the civ-counts stand-in; Phase 2b swaps in a tourism-based source here (one line). */
-    fun getIdeologicalPressureSource(): IdeologicalPressureSource = CivCountPressureSource()
+    /** BNW Phase 2a (D3) — the current ideological-pressure source for public opinion. Phase 2b
+     *  (Increment 6, the keystone) swaps in the tourism-driven source for BNW-style rulesets (those
+     *  with a `Tourism` resource), keeping non-BNW ideology mods on the civ-counts stand-in. This is
+     *  the one-line factory swap; [com.unciv.logic.civilization.managers.PublicOpinionManager] is untouched. */
+    fun getIdeologicalPressureSource(): IdeologicalPressureSource =
+        if (ruleset.tileResources.containsKey(TourismManager.TOURISM_RESOURCE)) TourismPressureSource()
+        else CivCountPressureSource()
 
     /** @return Sequence of all cities in game, both major civilizations and city states */
     @Readonly fun getCities() = civilizations.asSequence().flatMap { it.cities }

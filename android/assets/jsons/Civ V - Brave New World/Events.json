@@ -706,10 +706,11 @@
 		"choices": [
 			{
 				"text": "Perform Concert Tour",
-				// TODO: Tourism gain is first calculated when the Great Musician is born ([Tourism] * 10)
-				// https://www.reddit.com/r/civ/comments/248qq8/comment/ch4p9f3/
-				// https://forums.civfanatics.com/threads/concert-tour-question.509152/post-12766795
-				"uniques": ["Instantly provides [10] [Tourism] <for every [[Tourism] Per Turn]>"]
+				// BNW Phase 2b — Increment 5: boost our accumulated tourism *influence* over the rival
+				// whose territory the Great Musician stands in (output × 10), via the per-rival model.
+				// The unit is consumed by the Great Musician's outer "Triggers a [Perform Concert Tour]
+				// event <by consuming this unit>" action modifier, so this choice need not consume it.
+				"uniques": ["Gain a large boost of Tourism influence over the civilization whose territory this unit is in"]
 			}
 		]
 	},
