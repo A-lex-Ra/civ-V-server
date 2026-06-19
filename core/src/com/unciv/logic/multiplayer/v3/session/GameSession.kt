@@ -26,15 +26,17 @@ import com.unciv.utils.Log
  * [com.unciv.network.relay.ClientToRelay.RelayTo], broadcasts in `Relay`, or sending directly in
  * dedicated mode).
  *
- * Phase 3 (sequential): a player's client streams [GameFrame.PlayerCommand]s; the authority
+ * Sequential play: a player's client streams [GameFrame.PlayerCommand]s; the authority
  * validates+applies each and, on `EndTurn`, runs [GameInfo.nextTurn] and pushes a fresh per-player
  * filtered snapshot.
  *
- * Phase 5 (simultaneous): clients instead send a whole-turn [GameFrame.TurnSubmission]; the
- * authority buffers one per player and, once every rostered human player is `done` (or a future
- * timer calls [forceResolveTurn]), resolves the turn by applying all buffered commands in a single
- * deterministic order through the same executor choke-point, rejecting conflicting losers, then runs
- * `nextTurn` and pushes the same per-player snapshots. The sequential path is unchanged.
+ * Simultaneous play (the live UI path): every human acts at once and **streams** its
+ * [GameFrame.PlayerCommand]s during a shared human phase — each applies immediately through the same
+ * executor choke-point. `EndTurn` is a **barrier**: it marks a human done but does not advance the
+ * turn until *every* rostered, alive, connected human has ended (see [onEndTurn] / [maybeResolveRound]),
+ * at which point the round resolves once and pushes each human a fresh snapshot. Streaming is the only
+ * simultaneous model — there is no whole-turn batch frame buffered on the authority; conflicts are
+ * resolved by the order commands actually arrive, not by a post-hoc reorder of a buffered batch.
  */
 class GameSession(
     /** The canonical, authoritative game state owned by this session. */
@@ -66,23 +68,18 @@ class GameSession(
 ) {
     private val commandExecutor = CommandExecutor()
 
-    /** Phase 5: per-player buffering + deterministic ordering for the in-flight simultaneous turn. */
-    private val simultaneousResolver = SimultaneousTurnResolver()
-
     /**
      * Streaming-simultaneous turn barrier (the path the live UI uses): the set of human players who
      * have sent their `EndTurn` intent for the **current** human phase. Commands stream in and apply
      * immediately ([onPlayerCommand]); `EndTurn` does not advance the turn, it just records that this
-     * human is done. Once every rostered human is done the round resolves (see [onEndTurn]). Distinct
-     * from the buffered [simultaneousResolver] path (whole-turn [GameFrame.TurnSubmission]s), which is
-     * retained for the prediction/conflict tests.
+     * human is done. Once every rostered human is done the round resolves (see [onEndTurn]).
      */
     private val endedThisPhase = mutableSetOf<PlayerId>()
 
     /**
-     * Handle an inbound [GameFrame] from a client. Phase 3 handles [GameFrame.PlayerCommand]
-     * (single-command sequential play); Phase 5 adds [GameFrame.TurnSubmission] (simultaneous turns).
-     * Other inbound frame kinds are ignored for now (they belong to later phases — acks, resync).
+     * Handle an inbound [GameFrame] from a client. [GameFrame.PlayerCommand] drives both turn models
+     * (sequential and streaming-simultaneous); [GameFrame.ResyncRequest] re-syncs a (re)connecting
+     * client. Other inbound frame kinds are ignored (provisional lockstep leftovers — acks, etc.).
      *
      * `@Synchronized`: in option A the host process is also a local client of this authority, so
      * frames now arrive from two threads — the transport receive thread (remote players) and the UI
@@ -93,9 +90,8 @@ class GameSession(
     fun onFrame(frame: GameFrame) {
         when (frame) {
             is GameFrame.PlayerCommand -> onPlayerCommand(frame)
-            is GameFrame.TurnSubmission -> onTurnSubmission(frame)
             is GameFrame.ResyncRequest -> onResyncRequest(frame)
-            else -> Unit // Ack and the provisional lockstep frames: not used by v2.
+            else -> Unit // Ack and the provisional lockstep frames: not used by v3.
         }
     }
 
@@ -120,35 +116,40 @@ class GameSession(
         // directed CommandRejected to the issuing player; the canonical state is left untouched.
         try {
             commandExecutor.execute(gameInfo, civId, frame.command)
+            // The command applied immediately, but the actor's filtered view is otherwise only
+            // re-pushed at round resolution — so newly-revealed tiles/units (a unit that just finished
+            // moving) or new borders (a bought tile, a founded city) would not appear until the turn
+            // advanced. For commands that change what the actor can SEE or OWNS, push it a fresh
+            // filtered snapshot NOW so reveal is instant. Directed to the actor only: other players,
+            // possibly mid-action, must not have their screens churned by someone else's move (the
+            // single round-resolution broadcast remains the only cross-player view update per round).
+            if (changesActorView(frame.command)) sendSnapshotTo(frame.playerId, civId)
         } catch (e: CommandException) {
             outbound(frame.playerId, GameFrame.CommandRejected(frame.seq, e.message ?: "Command rejected"))
         }
     }
 
     /**
-     * Phase 5 — simultaneous turns. Buffer a player's whole-turn [GameFrame.TurnSubmission] for the
-     * current turn. An unknown/non-human player id is rejected. Once every rostered **human** player
-     * has submitted with `done = true`, the turn resolves automatically (see [resolveTurn]); a future
-     * per-turn timer can instead call [forceResolveTurn] to resolve with whatever has arrived.
-     *
-     * The submission *is* the player's whole turn — there is no separate `EndTurn` frame in the
-     * simultaneous model (any `EndTurn` command inside the batch is dropped at resolution time).
+     * Whether [command] can change what the acting player can SEE (vision) or OWNS (borders) — the
+     * commands after which the actor needs a fresh filtered snapshot mid-phase so reveal is instant
+     * (todos.txt: "reveal of units/cities ... on finishing a move; buying tiles likewise"). Deliberately
+     * narrow: commands that only change off-map state (production, research, diplomacy, promotions)
+     * carry no new map information, so the client's own optimistic feedback plus the round-resolution
+     * broadcast already cover them — re-pushing a full filtered view for those would just churn the
+     * actor's screen for nothing.
      */
-    private fun onTurnSubmission(frame: GameFrame.TurnSubmission) {
-        val civId = roster[frame.playerId]
-        if (civId == null || !isHuman(civId)) {
-            // A submission carries no per-command seq; echo seq 0 so the issuer can correlate the
-            // whole batch being declined. (Design note — see report: TurnSubmission has no seq field.)
-            outbound(frame.playerId, GameFrame.CommandRejected(0, "Unknown or non-human player '${frame.playerId}'"))
-            return
-        }
-        simultaneousResolver.accept(frame)
-        if (simultaneousResolver.isReadyToResolve(expectedHumanPlayers()))
-            resolveTurn()
+    private fun changesActorView(command: GameCommand): Boolean = when (command) {
+        is GameCommand.MoveUnit,
+        is GameCommand.SwapUnits,
+        is GameCommand.Paradrop,
+        is GameCommand.AttackUnit,
+        is GameCommand.FoundCity,
+        is GameCommand.BuyTile -> true
+        else -> false
     }
 
     /**
-     * Phase 6 — reconnection / desync recovery (docs/multiplayer-v3.md §10). A (re)connecting or
+     * Reconnection / desync recovery (docs/multiplayer-v3.md §10). A (re)connecting or
      * desynced client sends a [GameFrame.ResyncRequest]; the authority answers with a **fresh**
      * directed [GameFrame.PlayerView] projected from the *current* canonical state — mid-turn, on
      * demand, not only at turn boundaries. Because the authority ships full per-player filtered
@@ -177,42 +178,8 @@ class GameSession(
     }
 
     /**
-     * Force-resolve the current simultaneous turn with whatever submissions have arrived so far —
-     * the hook a future per-turn timer calls when not every player marked `done`. A player who did
-     * not submit simply contributes no commands this turn. No-op if nothing is buffered.
-     */
-    fun forceResolveTurn() {
-        if (simultaneousResolver.hasBufferedSubmissions())
-            resolveTurn()
-    }
-
-    /**
-     * Resolve one simultaneous turn: apply every buffered command in the single canonical order
-     * `(submissionArrivalIndex, playerId, seq)` through the [CommandExecutor] choke-point, emitting a
-     * directed [GameFrame.CommandRejected] for any the executor declines (e.g. a movement conflict
-     * because the destination tile is now occupied by an already-applied move) and skipping it.
-     * Then run inter-turn processing **once** and push each human player a fresh filtered snapshot.
-     *
-     * First-cut conflict model: deterministic ordered application + executor-driven rejection of the
-     * losers. Deeper conflict rules (simultaneous combat, contested city-capture) are deferred (§11).
-     */
-    private fun resolveTurn() {
-        for (ordered in simultaneousResolver.orderedCommands()) {
-            val civId = roster[ordered.playerId] ?: continue
-            try {
-                commandExecutor.execute(gameInfo, civId, ordered.command)
-            } catch (e: CommandException) {
-                outbound(ordered.playerId, GameFrame.CommandRejected(ordered.seq, e.message ?: "Command rejected"))
-            }
-        }
-        simultaneousResolver.reset()
-        gameInfo.nextTurn()
-        broadcastPlayerViews()
-    }
-
-    /**
      * The rostered players whose civ is human, still in the game, AND currently connected — the set
-     * whose `EndTurn` (or `done` submission) gates round resolution.
+     * whose `EndTurn` gates round resolution.
      *
      * **Defeated humans are excluded.** An eliminated player never sends another `EndTurn`, so counting
      * them would deadlock the streaming barrier: every surviving client would sit on "Waiting for other

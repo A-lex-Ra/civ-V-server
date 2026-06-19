@@ -132,8 +132,7 @@ RelayToClient: Welcome(roomId, role, peers) | PeerJoined/PeerLeft
 // Game frames, carried opaquely inside Relay/RelayTo/Relayed (or sent directly in dedicated mode)
 GameFrame:
   // client -> authority
-  - PlayerCommand(seq, playerId, command: GameCommand)        // one action intent
-  - TurnSubmission(turn, playerId, commands, done)            // simultaneous turns
+  - PlayerCommand(seq, playerId, command: GameCommand)        // one action intent (both turn models)
   - Ack(lastAppliedDeltaSeq)                                  // flow control / reconnect cursor
   - ResyncRequest                                             // "send me a fresh snapshot"
   // authority -> a SPECIFIC client (visibility-filtered; not a verbatim broadcast)
@@ -165,17 +164,26 @@ so a player sees an enemy unit appear only if it entered their vision. `EndTurn`
 `GameInfo.nextTurn()` on the authority (inter-turn processing stays authority-side); the
 resulting changes go out as the next round of per-player deltas.
 
-### Simultaneous (Phase 5) — the real prize
-1. All human players act **at once**; each client optimistically applies its *own* commands
-   locally (client-side prediction, limited to its own visible domain) and streams them as
-   `TurnSubmission`.
-2. When every player marks `done` (or a per-turn timer fires), the authority **resolves**: a
-   defined ordering (e.g. `(submissionIndex, playerId, seq)`) and conflict rules (two units onto
-   one tile, simultaneous combat, contested city capture), then applies the canonical sequence
-   and runs inter-turn processing.
-3. The authority pushes per-player `StateDelta`s; each client **reconciles** its prediction
-   against the authoritative result for its own actions. (No global checksum needed — the
-   authority is the only simulator; see §3.)
+### Simultaneous — the real prize (streaming, the only model)
+1. All human players act **at once** during a shared human phase. Each client **streams** its own
+   actions as ordinary `PlayerCommand`s the instant the player issues them; the authority validates
+   and applies each immediately against the canonical state and pushes the resulting per-player
+   filtered views. There is **no** authority-side whole-turn batch frame: commands are resolved in
+   the order they actually arrive, not reordered out of a buffered batch.
+2. `EndTurn` is a **barrier**, not a turn advance: it only marks that human done. The round advances
+   (inter-turn processing + AI) only once **every** rostered, alive, connected human has ended (or a
+   per-turn timer fires). Conflicts (two units onto one tile, simultaneous combat, contested city
+   capture) are settled by the streaming arrival order — the loser's command is simply rejected when
+   it can no longer apply.
+3. The authority pushes per-player views; clients render the authoritative result. (No global
+   checksum needed — the authority is the only simulator; see §3.)
+
+> **Why streaming, not buffered batches.** An earlier sketch had each client accumulate its whole
+> turn and submit it as one batch the authority reorders. We dropped it: streaming is the correct
+> model — it gives immediate feedback, a single conflict rule (arrival order), and no per-turn
+> deadline. Accumulating commands client-side has exactly one legitimate use — a local **resend
+> buffer** so a brief network drop can be replayed without losing the player's actions — and that is
+> a transport-layer reliability concern, **not** a turn model. The authority never buffers a turn.
 
 ## 7. Authority modes & hosting
 
@@ -260,7 +268,7 @@ resulting changes go out as the next round of per-player deltas.
   first?).
 - Per-turn timer policy for simultaneous mode (fixed clock vs. "all done" vs. hybrid).
 - Conflict-resolution rules catalogue (movement contention, combat ordering, city-capture races)
-  — needs a dedicated spec once Phase 5 starts.
+  beyond the first-cut "streaming arrival order, loser rejected" — needs a dedicated spec.
 - Keep chat on the existing `/chat` WebSocket or fold it into relay frames?
 
 ## 12. Build / verification note

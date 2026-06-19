@@ -191,8 +191,13 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
      *
      * Sets the returned `WorldScreen` as the only active screen.
      * @param autoPlay pass in the old WorldScreen AutoPlay to retain the state throughout turns. Otherwise leave it is the default.
+     * @param skipLoadingScreen build and swap in the new `WorldScreen` directly on the GL thread
+     *   WITHOUT flashing the intermediate [LoadingScreen]. Used by the multiplayer-v3 in-place view
+     *   refresh, where a fresh filtered snapshot arrives mid-turn (e.g. a unit finished moving and
+     *   revealed tiles) and a loading-screen flash on every such refresh would be jarring. The old
+     *   screen's camera/zoom/selected-civ are still preserved via the normal same-game restore path.
      */
-    suspend fun loadGame(newGameInfo: GameInfo, autoPlay: AutoPlay = AutoPlay(settings.autoPlay), callFromLoadScreen: Boolean = false): WorldScreen = withThreadPoolContext toplevel@{
+    suspend fun loadGame(newGameInfo: GameInfo, autoPlay: AutoPlay = AutoPlay(settings.autoPlay), callFromLoadScreen: Boolean = false, skipLoadingScreen: Boolean = false): WorldScreen = withThreadPoolContext toplevel@{
         // EXPERIMENTAL / PREVIEW (multiplayer-v3): loading a v3 SAVE means "resume" — this process
         // re-hosts the save as the authority and renders the host's own filtered loopback view (see
         // [startHostingV3Game]). Triggered when there is no active v3 session yet (main-menu resume,
@@ -220,9 +225,9 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
         val isLoadingSameGame = worldScreen != null && prevGameInfo != null && prevGameInfo.gameId == newGameInfo.gameId
         val worldScreenRestoreState = if (!callFromLoadScreen && isLoadingSameGame) worldScreen!!.getRestoreState() else null
 
-        lateinit var loadingScreen: LoadingScreen
+        var loadingScreen: LoadingScreen? = null
 
-        withGLContext {
+        if (!skipLoadingScreen) withGLContext {
             // this is not merged with the below GL context block so that our loading screen gets a chance to show - otherwise
             // we do it all in one swoop on the same thread and the application just "freezes" without loading screen for the duration.
             loadingScreen = LoadingScreen(getScreen())
@@ -251,8 +256,8 @@ open class UncivGame(val isConsoleMode: Boolean = false) : Game(), PlatformSpeci
             }
 
             screenStack.addLast(screenToShow)
-            setScreen(screenToShow) // Only here do we set the inputProcessor again 
-            loadingScreen.dispose()
+            setScreen(screenToShow) // Only here do we set the inputProcessor again
+            loadingScreen?.dispose()
 
             return@withGLContext newWorldScreen
         }

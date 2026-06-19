@@ -74,9 +74,11 @@ Two principles that constrain every stage:
     satisfy delta-out functionally. True semantic `StateDelta` patches are a later bandwidth
     optimization and need a format decision — do **not** invent one inside another stage.
 - **Frames now in `GameFrame.kt`:** added `PlayerView`, `CommandRejected`; `RelayTo` added to
-  `ClientToRelay`. Still-provisional leftovers from the abandoned lockstep framing: `ResolvedTurn`,
-  `StateCheckpoint`, `ChecksumReport`, `ResyncGrant`, and `TurnSubmission`/`ResyncRequest`. Phase 5
-  uses `TurnSubmission`; Phase 6 uses `ResyncRequest` + `PlayerView`. Don't add checksum/replay frames.
+  `ClientToRelay`. `ResyncRequest` + `PlayerView` drive reconnect/resync. Simultaneous play streams
+  ordinary `PlayerCommand`s (no whole-turn batch frame — the buffered `TurnSubmission` model was
+  dropped; streaming is the only simultaneous model). Still-provisional leftovers from the abandoned
+  lockstep framing — don't build on them, don't add checksum/replay frames: `ResolvedTurn`,
+  `StateCheckpoint`, `ChecksumReport`, `ResyncGrant`.
 
 ## Test-harness gotchas (TestGame + GdxTestRunner) — save yourself the debugging
 

@@ -28,8 +28,8 @@ import com.unciv.logic.multiplayer.v3.transport.RelayTransport
  *    (docs/multiplayer-v3.md §5).
  *
  * ## Identity binding (the security fix, docs/multiplayer-v3.md §8)
- * Frames that embed a `playerId` ([GameFrame.PlayerCommand], [GameFrame.TurnSubmission],
- * [GameFrame.ResyncRequest]) are **rebound** to `fromId` before reaching the session: the acting
+ * Frames that embed a `playerId` ([GameFrame.PlayerCommand], [GameFrame.ResyncRequest]) are
+ * **rebound** to `fromId` before reaching the session: the acting
  * player is *the connection that sent the frame*, never the id the client wrote into the payload.
  * This is what stops a hostile client from spoofing another player's commands or requesting another
  * player's filtered view. The relay authenticates `fromId` at the `Hello` handshake and stamps it on
@@ -149,7 +149,6 @@ class V3GameHost(
      */
     private fun bindIdentity(fromId: UserId, frame: GameFrame): GameFrame = when (frame) {
         is GameFrame.PlayerCommand -> frame.copy(playerId = fromId)
-        is GameFrame.TurnSubmission -> frame.copy(playerId = fromId)
         is GameFrame.ResyncRequest -> frame.copy(playerId = fromId)
         else -> frame
     }

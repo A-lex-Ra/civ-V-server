@@ -1,3 +1,13 @@
+[x] ревил юнитов и городов происходит только на следующем ходе, а не мнгновенно при окончании передвижения юнитом
+[x] покупка клеток аналогично
+    -> authority re-pushes the actor a fresh filtered view right after a vision-changing command
+       (move / swap / paradrop / attack / found-city / buy-tile); client applies it as a seamless
+       rebuild (no loading-screen flash), preserving camera + re-selecting the unit by its stable id.
+       GameSession.onPlayerCommand + WorldScreen v3 onView + UncivGame.loadGame(skipLoadingScreen).
+[x] host wins "Capture all capitals" the instant it founds its capital (locked everyone else out)
+    -> Domination's CaptureAllCapitals milestone now requires >1 potential capital owner; a world with
+       a single major-civ capital is never a conquest win. Victory.kt + DominationVictoryConditionTest.
+
 What was added — all player mechanics now route through the authoritative command path
 Worked as staged orchestration (sequential on the shared GameCommand.kt/CommandExecutor.kt, then parallel file-disjoint UI wiring), reviewing + committing per stage. 8 commits on master:
 

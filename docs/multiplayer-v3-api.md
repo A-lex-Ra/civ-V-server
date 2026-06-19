@@ -17,7 +17,7 @@ One party — the **authority** — owns the canonical `GameInfo` and is the sin
 Everyone else runs a thin **client** that holds only a *visibility-filtered* copy of the world.
 
 ```
-          PlayerCommand / TurnSubmission / ResyncRequest   (intent, tiny)
+          PlayerCommand / ResyncRequest   (intent, tiny)
    client ───────────────────────────────────────────────▶ authority (owns canonical GameInfo)
    (filtered view) ◀───────────────────────────────────── 
           PlayerView (per-player, redacted snapshot) / CommandRejected
@@ -123,8 +123,7 @@ directly in dedicated mode. The relay never reads them.
 
 | Frame | `SerialName` | Fields | Meaning |
 |---|---|---|---|
-| `PlayerCommand` | `playerCommand` | `seq`, `playerId`, `command: GameCommand` | A single sequenced intent. Sequential play streams these; `EndTurn` is sent as a `PlayerCommand`. |
-| `TurnSubmission` | `turnSubmission` | `turn`, `playerId`, `commands`, `done` | A whole-turn batch for the simultaneous model. |
+| `PlayerCommand` | `playerCommand` | `seq`, `playerId`, `command: GameCommand` | A single sequenced intent — the **only** command frame, for both turn models. Sequential and streaming-simultaneous play both stream these; `EndTurn` is sent as a `PlayerCommand` (it marks the player done / drives the barrier). |
 | `ResyncRequest` | `resyncRequest` | `playerId` | "Send me a fresh filtered snapshot now" (join / reconnect / mid-turn). |
 
 **Authority → a specific client**
@@ -235,9 +234,11 @@ inter-turn processing, and emits each connected human their own filtered `Player
 - **Roster** — `Map<PlayerId, civId>` for human players only (`PlayerId == UserId`). Build it with
   `V3GameManager.rosterFrom(gameInfo)`.
 - **Inbound** `onFrame(frame)`:
-  - `PlayerCommand` → resolve civ from roster → `EndTurn` records "this human is done"; any other
-    command goes through `CommandExecutor.execute` (rejection → directed `CommandRejected`).
-  - `TurnSubmission` → buffered per player; resolves once every expected human is `done`.
+  - `PlayerCommand` → resolve civ from roster → `EndTurn` records "this human is done" (drives the
+    barrier); any other command goes through `CommandExecutor.execute` (rejection → directed
+    `CommandRejected`). This is the only command path — both sequential and streaming-simultaneous
+    play stream `PlayerCommand`s, applied immediately in arrival order. There is no buffered
+    whole-turn frame.
   - `ResyncRequest` → directed fresh `PlayerView` from current state.
 - **Turn barrier (simultaneous, the live path).** A round resolves only when **every rostered human
   that is alive AND currently connected** has ended (`expectedHumanPlayers()`):

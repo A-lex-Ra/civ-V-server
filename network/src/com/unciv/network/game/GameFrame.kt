@@ -28,16 +28,6 @@ sealed interface GameFrame {
         val command: GameCommand
     ) : GameFrame
 
-    /** Client -> host: a batch of commands for a simultaneous turn, with a done flag. */
-    @Serializable
-    @SerialName("turnSubmission")
-    data class TurnSubmission(
-        val turn: Int,
-        val playerId: PlayerId,
-        val commands: List<GameCommand>,
-        val done: Boolean
-    ) : GameFrame
-
     /** Host -> all: the canonical, ordered command sequence for a turn plus the post-state checksum. */
     @Serializable
     @SerialName("resolvedTurn")

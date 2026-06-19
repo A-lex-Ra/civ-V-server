@@ -225,10 +225,28 @@ class WorldScreen(
                     // Fires on the transport receive thread (joiner) or in-process (host loopback);
                     // clientView already holds the decoded GameInfo.
                     val newGameInfo = v2.currentClientView() ?: return@onView
-                    if (game.gameInfo === gameInfo) // ignore if we've since navigated away from this game
-                        Concurrency.run("V2 view refresh") {
-                            UncivGame.Current.loadGame(newGameInfo)
+                    if (game.gameInfo !== gameInfo) return@onView // ignore if we've navigated away from this game
+                    // A fresh filtered snapshot arrives mid-turn too now (the authority re-pushes the
+                    // actor's view right after a move / bought tile / founded city so reveal is instant).
+                    // Rebuild WITHOUT the loading-screen flash, and since the snapshot is a brand-new
+                    // GameInfo with new MapUnit objects, re-find the player's selected unit by its stable
+                    // serialized id (NOT position — a just-moved unit is at a new tile, and for the host
+                    // the in-process view push fires before the optimistic local move even runs) so the
+                    // selection survives the refresh.
+                    val selectedUnit = bottomUnitTable.selectedUnit
+                    val reselectUnitId = selectedUnit?.id?.takeIf { it != Constants.NO_ID }
+                    val reselectOwner = selectedUnit?.owner
+                    Concurrency.run("V2 view refresh") {
+                        val newScreen = UncivGame.Current.loadGame(newGameInfo, skipLoadingScreen = true)
+                        if (reselectUnitId != null && reselectOwner != null) launchOnGLThread {
+                            val unit = newScreen.gameInfo.getCivilizationOrNull(reselectOwner)
+                                ?.units?.getCivUnits()?.firstOrNull { it.id == reselectUnitId }
+                            if (unit != null) {
+                                newScreen.bottomUnitTable.selectUnit(unit)
+                                newScreen.shouldUpdate = true
+                            }
                         }
+                    }
                 }
             }
         }

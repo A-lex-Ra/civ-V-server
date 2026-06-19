@@ -19,12 +19,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Option A — the **streaming-simultaneous** turn barrier the live UI uses (docs/multiplayer-v3.md §6
- * "Simultaneous"). Distinct from [SimultaneousTurnTest], which exercises the buffered whole-turn
- * [GameFrame.TurnSubmission] path: here players *stream* [GameFrame.PlayerCommand]s during a shared
- * human phase, and `EndTurn` is a **barrier** — it marks a human done but does not advance the turn
- * until *every* rostered human has ended. That is what lets two humans act at the same time while
- * the AI runs separately (the design goal: "оба игрока должны ходить одновременно когда их очередь").
+ * The **streaming-simultaneous** turn barrier the live UI uses (docs/multiplayer-v3.md §6
+ * "Simultaneous") — the only simultaneous model. Players *stream* [GameFrame.PlayerCommand]s during a
+ * shared human phase (each applies immediately), and `EndTurn` is a **barrier** — it marks a human
+ * done but does not advance the turn until *every* rostered human has ended. That is what lets two
+ * humans act at the same time while the AI runs separately (the design goal: "оба игрока должны
+ * ходить одновременно когда их очередь").
  */
 @RunWith(GdxTestRunner::class)
 class SimultaneousBarrierTest {
@@ -121,6 +121,27 @@ class SimultaneousBarrierTest {
         )
         assertTrue("Two legal moves must produce no rejection",
             emitted.none { it.second is GameFrame.CommandRejected })
+    }
+
+    @Test
+    fun aVisionChangingCommandImmediatelyPushesOnlyTheActorAFreshView() {
+        // todos.txt #1: a unit's reveal (and a bought tile) used to appear only once the turn advanced,
+        // because the actor's filtered view was re-pushed only at round resolution. The authority now
+        // re-pushes the ACTOR a fresh snapshot right after a vision-changing command, so reveal is
+        // instant — and ONLY to the actor (other still-acting humans must not have their screens churned).
+        val aUnit = testGame.addUnit("Warrior", civA, centerTile)
+        val aTo = centerTile.neighbors.first()
+        val startTurns = testGame.gameInfo.turns
+
+        session.onFrame(playerCommand(seq = 1, playerId = playerA, command = move(centerTile, aTo)))
+
+        assertEquals("A streamed move must apply immediately", aTo, aUnit.currentTile)
+        assertEquals("A mid-phase move must NOT advance the turn", startTurns, testGame.gameInfo.turns)
+        val viewRecipients = emitted.filter { it.second is GameFrame.PlayerView }.map { it.first }.toSet()
+        assertTrue("The actor must get a fresh view right after a vision-changing command (instant reveal)",
+            playerA in viewRecipients)
+        assertTrue("A mid-phase reveal is directed to the actor only, not other still-acting players",
+            playerB !in viewRecipients)
     }
 
     @Test
