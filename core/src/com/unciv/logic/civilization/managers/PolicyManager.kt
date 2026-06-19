@@ -93,6 +93,16 @@ class PolicyManager : IsPartOfGameInfoSerialization {
     val branches: Set<PolicyBranch>
         get() = civInfo.gameInfo.ruleset.policyBranches.values.toSet()
 
+    /**
+     * D1 — the ideology this civ has currently adopted, or `null` if none. Generic across rulesets:
+     * an "ideology" is any adopted [PolicyBranch] for which [PolicyBranch.isIdeology] holds. Since
+     * ideologies are mutually exclusive in BNW data, at most one branch qualifies.
+     */
+    @Readonly
+    fun getCurrentIdeology(): PolicyBranch? =
+        civInfo.gameInfo.ruleset.policyBranches.values
+            .firstOrNull { it.isIdeology && isAdopted(it.name) }
+
     fun clone(): PolicyManager {
         val toReturn = PolicyManager()
         toReturn.numberOfAdoptedPolicies = numberOfAdoptedPolicies

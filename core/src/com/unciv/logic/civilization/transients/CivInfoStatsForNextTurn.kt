@@ -290,6 +290,15 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
         if (transportUpkeep.happiness != 0f)
             statMap["Transportation Upkeep"] = -transportUpkeep.happiness
 
+        // BNW Phase 2a — ideological public-opinion pressure (one civ-wide key). Read the already-
+        // computed penalty directly: dissidentUnhappiness is 0 whenever the civ has no ideology, so
+        // this needs NO getCurrentIdeology() call — which would deref PolicyManager.civInfo and throw
+        // when this breakdown runs before transients are wired (e.g. UnitManager.addUnit in tests, or
+        // barbarians). publicOpinion is recomputed once per turn by the authority (TurnManager.startTurn).
+        val ideologicalPressure = civInfo.publicOpinion.getHappinessFromPublicOpinion().toFloat()
+        if (ideologicalPressure != 0f)
+            statMap["Ideological Pressure"] = ideologicalPressure
+
         for ((key, value) in getGlobalStatsFromUniques())
             statMap.add(key,value.happiness)
 

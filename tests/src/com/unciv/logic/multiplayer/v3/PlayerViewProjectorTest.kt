@@ -227,6 +227,43 @@ class PlayerViewProjectorTest {
         )
     }
 
+    @Test
+    fun rivalPublicOpinionIsScrubbedButViewersIsKept() {
+        // BNW Phase 2a (D2): public opinion is authority-only state — a rival civ's ideological
+        // pressure meter / dissident unhappiness must be scrubbed from the wire view (it would
+        // otherwise leak the rival's hidden ideology), while the viewer's own opinion stays intact.
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        // B (a rival of the viewer A) has public-opinion state.
+        civB.publicOpinion.ideologyPressureByBranch["Order"] = 3.5f
+        civB.publicOpinion.dissidentUnhappiness = -4
+        // A (the viewer) also has public-opinion state, which must survive.
+        civA.publicOpinion.ideologyPressureByBranch["Freedom"] = 2f
+        civA.publicOpinion.dissidentUnhappiness = -2
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+
+        val bInView = projectedCiv(viewForA, civB.civID)
+        assertTrue(
+            "Rival B's ideological-pressure meter must be scrubbed",
+            bInView.publicOpinion.ideologyPressureByBranch.isEmpty()
+        )
+        assertEquals(
+            "Rival B's dissident unhappiness must be zeroed",
+            0, bInView.publicOpinion.dissidentUnhappiness
+        )
+
+        val aInView = projectedCiv(viewForA, civA.civID)
+        assertEquals(
+            "Viewer A's own pressure meter must be preserved",
+            2f, aInView.publicOpinion.ideologyPressureByBranch["Freedom"]!!, 0f
+        )
+        assertEquals(
+            "Viewer A's own dissident unhappiness must be preserved",
+            -2, aInView.publicOpinion.dissidentUnhappiness
+        )
+    }
+
     // endregion
 
     // region Priority 2 — seen enemy city interior

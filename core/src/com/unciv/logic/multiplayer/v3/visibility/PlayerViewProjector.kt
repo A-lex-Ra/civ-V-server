@@ -252,6 +252,14 @@ object PlayerViewProjector {
         civ.policies.storedCulture = 0
         civ.policies.shouldOpenPolicyPicker = false
 
+        // --- Ideological public opinion (BNW Phase 2a, authority-only state — D2) ---
+        // A rival's ideology is already hidden (adopted policies are scrubbed above), so its derived
+        // public opinion must be hidden too, or a client could infer the rival's ideology from the
+        // pressure meter. Clearing the map and zeroing the penalty is a valid empty state (matches a
+        // civ with no ideology), so the client's setTransients() deserializes it cleanly.
+        civ.publicOpinion.ideologyPressureByBranch.clear()
+        civ.publicOpinion.dissidentUnhappiness = 0
+
         // --- Production / purchasing knowledge held at the civ level ---
         civ.civConstructions.boughtItemsWithIncreasingPrice.clear()
         civ.civConstructions.builtItemsWithIncreasingCost.clear()

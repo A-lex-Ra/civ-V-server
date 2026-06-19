@@ -16,6 +16,8 @@ import com.unciv.logic.automation.Timers.Companion.timeThis
 import com.unciv.logic.automation.civilization.BarbarianManager
 import com.unciv.logic.city.City
 import com.unciv.logic.civilization.*
+import com.unciv.logic.civilization.PublicOpinion.CivCountPressureSource
+import com.unciv.logic.civilization.PublicOpinion.IdeologicalPressureSource
 import com.unciv.logic.civilization.managers.TechManager
 import com.unciv.logic.civilization.managers.TurnManager
 import com.unciv.logic.civilization.managers.VictoryManager
@@ -253,6 +255,10 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
     /** Access a cached `GlobalUniques` that combines the [ruleset]'s [globalUniques][Ruleset.globalUniques]
      *  with the Uniques of the chosen [speed] and [difficulty][getDifficulty] */
     @Readonly fun getGlobalUniques() = combinedGlobalUniques
+
+    /** BNW Phase 2a (D3) — the current ideological-pressure source for public opinion. Increment 1
+     *  returns the civ-counts stand-in; Phase 2b swaps in a tourism-based source here (one line). */
+    fun getIdeologicalPressureSource(): IdeologicalPressureSource = CivCountPressureSource()
 
     /** @return Sequence of all cities in game, both major civilizations and city states */
     @Readonly fun getCities() = civilizations.asSequence().flatMap { it.cities }
