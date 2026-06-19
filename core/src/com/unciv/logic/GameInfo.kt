@@ -19,6 +19,7 @@ import com.unciv.logic.civilization.*
 import com.unciv.logic.civilization.PublicOpinion.CivCountPressureSource
 import com.unciv.logic.civilization.PublicOpinion.IdeologicalPressureSource
 import com.unciv.logic.civilization.PublicOpinion.TourismPressureSource
+import com.unciv.logic.civilization.managers.GreatWorkManager
 import com.unciv.logic.civilization.managers.TechManager
 import com.unciv.logic.civilization.managers.TourismManager
 import com.unciv.logic.civilization.managers.TurnManager
@@ -107,6 +108,8 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
 
     var civilizations = ArrayList<Civilization>()
     var barbarians = BarbarianManager()
+    /** BNW Phase 2c — authoritative registry of every Great Work and its slot placement (D1). */
+    var greatWorkManager = GreatWorkManager()
     var religions: HashMap<String, Religion> = hashMapOf()
     var difficulty = "Chieftain" // difficulty is game-wide, think what would happen if 2 human players could play on different difficulties?
     var tileMap: TileMap = TileMap()
@@ -192,6 +195,7 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
             .map { it.clone() }
             .toCollection(ArrayList(civilizations.size))
         toReturn.barbarians = barbarians.clone()
+        toReturn.greatWorkManager = greatWorkManager.clone()
         toReturn.religions.putAll(religions.asSequence().map { it.key to it.value.clone() })
         toReturn.currentPlayer = currentPlayer
         toReturn.currentTurnStartTime = currentTurnStartTime
@@ -778,6 +782,7 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
         spaceResources.addAll(ruleset.victories.values.flatMap { it.requiredSpaceshipParts })
 
         barbarians.setTransients(this)
+        greatWorkManager.setTransients(this)
 
         guaranteeUnitPromotions()
         migrateToTileHistory()

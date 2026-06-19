@@ -623,6 +623,13 @@ enum class UniqueParameterType(
         override val staticKnownValues = setOf(Constants.thisUnit, Constants.targetUnit)
     },
 
+    /** Used by [UniqueType.ProvidesGreatWorkSlots] (BNW Great Works), implemented by [com.unciv.logic.civilization.managers.GreatWorkSlotProvider] */
+    GreatWorkSlotType("greatWorkSlotType", "Art", "`Writing`, `Art`, or `Music` - the type of Great Work slot",
+        severityDefault = UniqueType.UniqueParameterErrorSeverity.RulesetInvariant
+    ) {
+        override val staticKnownValues = setOf("Writing", "Art", "Music")
+    },
+
     /** Mod declarative compatibility: Define Mod relations by their name. */
     ModName("modFilter",
         docExample = "DeCiv Redux",

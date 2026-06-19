@@ -378,6 +378,10 @@ enum class UniqueType(
     MovesToNewCapital("Moves to new capital when capital changes", UniqueTarget.Building),
     ProvidesExtraLuxuryFromCityResources("Provides 1 extra copy of each improved luxury resource near this City", UniqueTarget.Building),
 
+    // BNW Phase 2c (D3) — declares Great Work slots on a building/wonder; [greatWorkSlotType] is the slot
+    // type (Writing/Art/Music). Read by GreatWorkSlotProvider to derive slots; no other engine effect.
+    ProvidesGreatWorkSlots("Provides [amount] [greatWorkSlotType] Great Work slots", UniqueTarget.Building),
+
     DestroyedWhenCityCaptured("Destroyed when the city is captured", UniqueTarget.Building),
     NotDestroyedWhenCityCaptured("Never destroyed when the city is captured", UniqueTarget.Building),
     GoldFromCapturingCity("[relativeAmount]% Gold given to enemy if city is captured", UniqueTarget.Building),
