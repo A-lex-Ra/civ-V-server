@@ -13,6 +13,7 @@ import com.unciv.logic.civilization.MapUnitAction
 import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.civilization.NotificationIcon
 import com.unciv.logic.civilization.PopupAlert
+import com.unciv.logic.civilization.managers.GreatWorkTheming
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
 import com.unciv.logic.multiplayer.isUsersTurn
@@ -118,8 +119,19 @@ class CityConstructions : IsPartOfGameInfoSerialization {
     @Readonly
     fun getStats(): StatTreeNode = timeThis("CityConstructions.getStats") {
         @LocalState val stats = StatTreeNode()
-        for (building in getBuiltBuildings())
+        for (building in getBuiltBuildings()) {
             stats.addStats(building.getStats(city), building.name)
+            // BNW Phase 2c — Increment 8 (theming-Culture gap): a building whose Great Works are themed
+            // grants the declared `[stats]` Culture bonus. GreatWorkTheming.getThemingStats returns an
+            // empty Stats unless the building actually declares a theming bonus AND is currently themed,
+            // so it is safe (and cheap — the slot-existence pre-check exits early) to call only for
+            // buildings that carry the GreatWorkThemingBonus unique.
+            if (building.hasUnique(UniqueType.GreatWorkThemingBonus)) {
+                val themingStats = GreatWorkTheming.getThemingStats(city.civ, building.name, city.location)
+                if (!themingStats.isEmpty())
+                    stats.addStats(themingStats, building.name)
+            }
+        }
         return stats
     }
 

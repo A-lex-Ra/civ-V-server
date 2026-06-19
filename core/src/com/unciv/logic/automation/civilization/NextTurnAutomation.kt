@@ -68,6 +68,7 @@ object NextTurnAutomation {
             issueRequests(civInfo)
             considerIdeologySwitch(civInfo) // BNW Phase 2a — Increment 2 (guarded; usually a no-op)
             adoptPolicy(civInfo)  // todo can take a second - why?
+            optimizeGreatWorks(civInfo) // BNW Phase 2c — Increment 8 (guarded; no-op without slots)
             freeUpSpaceResources(civInfo)
         } else if (civInfo.isCityState) {
             civInfo.cityStateFunctions.getFreeTechForCityState()
@@ -436,6 +437,110 @@ object NextTurnAutomation {
             civInfo.policies.adopt(policyToAdopt)
         }
     }
+
+    /**
+     * BNW Phase 2c — Increment 8. Light, terminating AI for Great Works: fill empty slots, then do a
+     * few strictly-improving theming swaps. Runs on the **authority**, so it mutates the canonical
+     * [com.unciv.logic.civilization.managers.GreatWorkManager] directly (no [com.unciv.network.command.GameCommand]).
+     *
+     * No-op (cheap early return) for any ruleset without the Great-Work slot concept, so non-BNW games
+     * pay nothing. Called only for major civs (see the [automateCivMoves] guard).
+     *
+     * Two phases:
+     *  1. **Fill** — [com.unciv.logic.civilization.managers.GreatWorkManager.autoFillFreeSlots] places
+     *     every unplaced/banked work into a free matching slot.
+     *  2. **Theming swaps** — for each of the civ's buildings that declares a theming bonus
+     *     ([UniqueType.GreatWorkThemingBonus]) but is NOT yet themed, try swapping in a work from one of
+     *     the civ's *other* slots that would help. A swap is applied via
+     *     [com.unciv.logic.civilization.managers.GreatWorkManager.moveWork] **only** when it strictly
+     *     increases [com.unciv.logic.civilization.managers.GreatWorkManager.getTourismContribution]
+     *     (which rises both when a building becomes newly themed and never falls for a lateral move).
+     *
+     * **Termination:** every applied swap strictly increases a bounded quantity (total tourism, which is
+     * capped by the finite slot/theming set), so no cycle can repeat; on top of that a hard
+     * [MAX_GREAT_WORK_SWAP_ITERATIONS] cap guarantees the loop ends even if the metric ever plateaus.
+     */
+    @VisibleForTesting
+    fun optimizeGreatWorks(civInfo: Civilization) {
+        val manager = civInfo.gameInfo.greatWorkManager
+        if (!com.unciv.logic.civilization.managers.GreatWorkSlotProvider
+                .rulesetHasGreatWorkSlots(civInfo.gameInfo.ruleset)) return
+
+        // Phase 1: place everything we can into a free slot.
+        manager.autoFillFreeSlots(civInfo)
+
+        // Phase 2: greedy, bounded, strictly-improving theming swaps.
+        val allSlots = com.unciv.logic.civilization.managers.GreatWorkSlotProvider.getSlotsForCiv(civInfo)
+        if (allSlots.isEmpty()) return
+
+        // The civ's distinct (building, city) hosts that DECLARE a theming bonus — the only swap targets.
+        val themingHosts = allSlots
+            .filter { slot ->
+                civInfo.gameInfo.ruleset.buildings[slot.buildingName]
+                    ?.hasUnique(UniqueType.GreatWorkThemingBonus) == true
+            }
+            .map { it.buildingName to it.cityLocation }
+            .distinct()
+        if (themingHosts.isEmpty()) return
+
+        var iterations = 0
+        var improvedThisPass = true
+        // Repeat passes while we keep finding an improvement, under a hard iteration cap (O(works²)-bounded:
+        // each pass is O(hosts × slots), and we do at most MAX_GREAT_WORK_SWAP_ITERATIONS single swaps total).
+        while (improvedThisPass && iterations < MAX_GREAT_WORK_SWAP_ITERATIONS) {
+            improvedThisPass = false
+
+            for ((buildingName, cityLocation) in themingHosts) {
+                if (iterations >= MAX_GREAT_WORK_SWAP_ITERATIONS) break
+                // Already themed -> nothing to gain here.
+                if (com.unciv.logic.civilization.managers.GreatWorkTheming
+                        .isThemed(civInfo, buildingName, cityLocation)) continue
+
+                // This host's slots, and every OTHER owned slot we could pull a work from.
+                val currentSlots = com.unciv.logic.civilization.managers.GreatWorkSlotProvider
+                    .getSlotsForCiv(civInfo)
+                val hostSlots = currentSlots.filter {
+                    it.buildingName == buildingName && it.cityLocation == cityLocation
+                }
+                val donorSlots = currentSlots.filter {
+                    !(it.buildingName == buildingName && it.cityLocation == cityLocation)
+                }
+
+                var swappedThisHost = false
+                for (hostSlot in hostSlots) {
+                    if (iterations >= MAX_GREAT_WORK_SWAP_ITERATIONS) break
+                    for (donorSlot in donorSlots) {
+                        if (iterations >= MAX_GREAT_WORK_SWAP_ITERATIONS) break
+                        val donorWork = manager.getWorkInSlot(donorSlot) ?: continue
+                        // The work we pull in must fit the host slot's type.
+                        if (!donorWork.type.fitsSlot(hostSlot.slotType)) continue
+
+                        val before = manager.getTourismContribution(civInfo)
+                        // Try the swap (moveWork swaps when the destination holds another owned work).
+                        manager.moveWork(donorWork, hostSlot)
+                        val after = manager.getTourismContribution(civInfo)
+
+                        if (after > before) {
+                            // Strictly improving — keep it.
+                            iterations++
+                            swappedThisHost = true
+                            improvedThisPass = true
+                            break
+                        } else {
+                            // Not an improvement — revert by moving the work back to its donor slot.
+                            manager.moveWork(donorWork, donorSlot)
+                            iterations++
+                        }
+                    }
+                    if (swappedThisHost) break
+                }
+            }
+        }
+    }
+
+    /** Hard upper bound on Great-Work theming swap attempts per civ-turn — a safety net on top of the
+     *  strictly-improving rule that already guarantees termination. */
+    private const val MAX_GREAT_WORK_SWAP_ITERATIONS = 64
 
     fun chooseGreatPerson(civInfo: Civilization) {
         if (civInfo.greatPeople.freeGreatPeople == 0) return

@@ -2,6 +2,7 @@ package com.unciv.logic.civilization.managers
 
 import com.unciv.logic.map.HexCoord
 import com.unciv.models.ruleset.GreatWorkType
+import yairm210.purity.annotations.Readonly
 
 /**
  * BNW Phase 2c — Increment 1. The identity of one Great-Work slot in one building in one city (D2).
@@ -22,5 +23,6 @@ data class GreatWorkSlot(
     val slotIndex: Int,
     val slotType: GreatWorkType
 ) {
+    @Readonly
     fun key(): String = "$civId|${cityLocation.x},${cityLocation.y}|$buildingName|$slotIndex"
 }

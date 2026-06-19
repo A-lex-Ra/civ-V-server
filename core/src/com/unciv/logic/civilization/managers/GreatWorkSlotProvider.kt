@@ -4,6 +4,8 @@ import com.unciv.logic.civilization.Civilization
 import com.unciv.models.ruleset.GreatWorkType
 import com.unciv.models.ruleset.Ruleset
 import com.unciv.models.ruleset.unique.UniqueType
+import yairm210.purity.annotations.LocalState
+import yairm210.purity.annotations.Readonly
 
 /**
  * BNW Phase 2c — Increment 2. Derives a civ's existing Great-Work slots from its built-building data
@@ -29,8 +31,9 @@ object GreatWorkSlotProvider {
         Regex("""^\[(.+?)] \[Great Work of (Writing|Art|Music)](?: (\d+))?$""")
 
     /** Every Great-Work slot that currently exists for [civ], across all its cities. */
+    @Readonly
     fun getSlotsForCiv(civ: Civilization): List<GreatWorkSlot> {
-        val result = ArrayList<GreatWorkSlot>()
+        @LocalState val result = ArrayList<GreatWorkSlot>()
         for (city in civ.cities) {
             for (building in city.cityConstructions.getBuiltBuildings()) {
                 val fromUnique = building.getMatchingUniques(UniqueType.ProvidesGreatWorkSlots).toList()
@@ -86,10 +89,12 @@ object GreatWorkSlotProvider {
         }
 
     /** "Writing"/"Art"/"Music" → the matching [GreatWorkType]; `null` if unrecognized. */
+    @Readonly
     private fun parseSlotType(word: String): GreatWorkType? =
         GreatWorkType.entries.firstOrNull { it.name == word }
 
     /** Parses a hidden slot building name into a [GreatWorkSlot] attributed to the host, or `null`. */
+    @Readonly
     private fun parseHiddenSlotBuilding(
         civ: Civilization,
         cityLocation: com.unciv.logic.map.HexCoord,

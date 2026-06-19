@@ -4,6 +4,8 @@ import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.map.HexCoord
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.stats.Stats
+import yairm210.purity.annotations.LocalState
+import yairm210.purity.annotations.Readonly
 
 /**
  * BNW Phase 2c — Increment 5. Evaluates Great-Work **theming bonuses** for one building in one city,
@@ -33,6 +35,7 @@ object GreatWorkTheming {
      * The Great Works currently filling [buildingName]'s slots in the city at [cityLocation] for [civ],
      * in slot-index order. Slots with no work are skipped, so `size < slot count` means "not all filled".
      */
+    @Readonly
     private fun worksInBuilding(civ: Civilization, buildingName: String, cityLocation: HexCoord): List<GreatWork> {
         val manager = civ.gameInfo.greatWorkManager
         return GreatWorkSlotProvider.getSlotsForCiv(civ)
@@ -42,6 +45,7 @@ object GreatWorkTheming {
     }
 
     /** The number of slots [buildingName] has in the city at [cityLocation] for [civ]. */
+    @Readonly
     private fun slotCount(civ: Civilization, buildingName: String, cityLocation: HexCoord): Int =
         GreatWorkSlotProvider.getSlotsForCiv(civ)
             .count { it.buildingName == buildingName && it.cityLocation == cityLocation }
@@ -55,6 +59,7 @@ object GreatWorkTheming {
      * theming condition on the host building must hold (multiple uniques AND-ed). A building with no slots
      * is never themed.
      */
+    @Readonly
     fun isThemed(civ: Civilization, buildingName: String, cityLocation: HexCoord): Boolean {
         val slots = slotCount(civ, buildingName, cityLocation)
         if (slots == 0) return false
@@ -70,6 +75,7 @@ object GreatWorkTheming {
     }
 
     /** Evaluate a single theming [condition] over [works] (all-filled is the caller's precondition). */
+    @Readonly
     private fun conditionHolds(condition: String, works: List<GreatWork>): Boolean = when (condition) {
         "of the same era" -> works.map { it.fromEra }.distinct().size <= 1
         "by distinct artists" -> works.map { it.artistName }.distinct().size == works.size
@@ -82,10 +88,11 @@ object GreatWorkTheming {
      * The declared `[stats]` Culture (etc.) bonus from every theming unique on [buildingName], summed,
      * if the building is themed for [civ]; an empty [Stats] otherwise.
      */
+    @Readonly
     fun getThemingStats(civ: Civilization, buildingName: String, cityLocation: HexCoord): Stats {
         if (!isThemed(civ, buildingName, cityLocation)) return Stats()
         val building = civ.gameInfo.ruleset.buildings[buildingName] ?: return Stats()
-        val total = Stats()
+        @LocalState val total = Stats()
         for (unique in building.getMatchingUniques(UniqueType.GreatWorkThemingBonus))
             total.add(Stats.parse(unique.params[0]))
         return total
@@ -96,6 +103,7 @@ object GreatWorkTheming {
      * the building is themed, else 0. (Tourism is not a [com.unciv.models.stats.Stat], so it is not read
      * from the `[stats]` bonus; the per-work base is added by [GreatWorkManager.getTourismContribution].)
      */
+    @Readonly
     fun getThemingTourism(civ: Civilization, buildingName: String, cityLocation: HexCoord): Float =
         if (isThemed(civ, buildingName, cityLocation)) THEMED_TOURISM_BONUS else 0f
 }

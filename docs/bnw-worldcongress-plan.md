@@ -8,7 +8,7 @@ Baseline today: the **only** diplomatic-vote concept is the legacy UN diplomatic
 
 ## Framing decisions
 
-- **D1 — World Congress is GLOBAL (`GameInfo`-level) authoritative state**, NOT per-civ. Mirror `BarbarianManager`: a `WorldCongressManager : IsPartOfGameInfoSerialization` field on `GameInfo` with `@Transient lateinit var gameInfo`, wired into `GameInfo.clone()` (a `congress = congress.clone()` line) and `GameInfo.setTransients()` (`congress.setTransients(this)` after `barbarians.setTransients(this)`). Save-compat: the field default-constructs to a valid **"no congress founded yet"** state (`isFounded = false`), so old saves load unchanged with zero migration. Do **NOT** bump `CompatibilityVersion.CURRENT_COMPATIBILITY_NUMBER`.
+- **D1 — World Congress is GLOBAL (`GameInfo`-level) authoritative state**, NOT per-civ. Mirror `BarbarianManager`: a `WorldCongressManager : IsPartOfGameInfoSerialization` field on `GameInfo` with `@Transient lateinit var gameInfo`, wired into `GameInfo.clone()` (a `congress = congress.clone()` line) and `GameInfo.setTransients()` (`congress.setTransients(this)` after `barbarians.setTransients(this)`). The field default-constructs to a valid **"no congress founded yet"** state (`isFounded = false`) and needs no migration. Do **NOT** bump `CompatibilityVersion.CURRENT_COMPATIBILITY_NUMBER`.
 
 - **D2 — flat kotlinx DTO layer (the §7 warning).** `GameCommand` is kotlinx `@Serializable`; the canonical congress *state* uses libgdx-JSON (`IsPartOfGameInfoSerialization`). Two separate type families — never embed a state object in a command. Both new commands carry **only flat primitives**; the authority re-resolves them against canonical state. Proposals are server-canonical, referenced by **int id**.
 
@@ -155,7 +155,7 @@ Pure primitives (heeding §7): the proposal is server-canonical, referenced by `
 
 ## Risks (all increments)
 
-- **Save-compat (D1):** `GameInfo.congress` + every nested element MUST default-construct to a valid not-founded state and be in `clone()` + `setTransients()`. Do NOT bump `CURRENT_COMPATIBILITY_NUMBER`. Clone-round-trip + fresh-default test per increment.
+- **Serialization correctness (D1):** `GameInfo.congress` + every nested element MUST default-construct to a valid not-founded state and be in `clone()` + `setTransients()`. Do NOT bump `CURRENT_COMPATIBILITY_NUMBER` (no migration needed). Clone-round-trip + fresh-default test per increment.
 - **Serialization split (D2 / §7):** `GameCommand` = kotlinx flat primitives; congress state = libgdx-JSON. Never embed state in a command — reference proposals by int `proposalId`.
 - **Exhaustive `when`:** adding the two commands forces branches in `CommandExecutor.execute` (compile error until handled) + a `CommandCatalogueTest` pair.
 - **Authority-only (D3):** all tallies/effects/phases on the authority; clients send commands + render the projected view. The Inc-2 vote-scrub is mandatory (anti-maphack parity with `scrubCivSecrets`).

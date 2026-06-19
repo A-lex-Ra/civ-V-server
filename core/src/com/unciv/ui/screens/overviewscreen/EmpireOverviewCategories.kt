@@ -74,6 +74,18 @@ enum class EmpireOverviewCategories(
         override fun createTab(viewingPlayer: Civilization, overviewScreen: EmpireOverviewScreen, persistedData: EmpireOverviewTabPersistableData?) =
                 NotificationsOverviewTable(viewingPlayer, overviewScreen, persistedData)
         override fun showDisabled(viewingPlayer: Civilization) = viewingPlayer.notifications.isEmpty() && viewingPlayer.notificationsLog.isEmpty()
+    },
+    // BNW Phase 2c — Increment 8: Great Works (Culture-Overview style). Hidden unless the ruleset uses
+    // the Great-Work slot concept; disabled when the civ has no works of its own yet.
+    GreatWorks("StatIcons/Culture", 'G', Align.topLeft) {
+        override fun createTab(viewingPlayer: Civilization, overviewScreen: EmpireOverviewScreen, persistedData: EmpireOverviewTabPersistableData?) =
+                GreatWorksOverviewTab(viewingPlayer, overviewScreen)
+        override fun testState(viewingPlayer: Civilization) = when {
+            !com.unciv.logic.civilization.managers.GreatWorkSlotProvider
+                .rulesetHasGreatWorkSlots(viewingPlayer.gameInfo.ruleset) -> EmpireOverviewTabState.Hidden
+            viewingPlayer.gameInfo.greatWorkManager.getWorksOf(viewingPlayer).isEmpty() -> EmpireOverviewTabState.Disabled
+            else -> EmpireOverviewTabState.Normal
+        }
     }
 
     ;

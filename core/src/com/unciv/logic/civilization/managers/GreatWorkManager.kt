@@ -4,6 +4,8 @@ import com.unciv.logic.GameInfo
 import com.unciv.logic.IsPartOfGameInfoSerialization
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.Tourism.GreatWorksTourismSource
+import com.unciv.models.ruleset.GreatWorkType
+import yairm210.purity.annotations.Readonly
 
 /**
  * BNW Phase 2c — Increment 1. The authoritative, GameInfo-level registry of every [GreatWork] in the
@@ -86,6 +88,7 @@ class GreatWorkManager : IsPartOfGameInfoSerialization {
         slotPlacements.remove(slot.key())
     }
 
+    @Readonly
     fun getWorkInSlot(slot: GreatWorkSlot): GreatWork? =
         slotPlacements[slot.key()]?.let { works[it] }
 
@@ -203,6 +206,56 @@ class GreatWorkManager : IsPartOfGameInfoSerialization {
             val resource = gameInfo.ruleset.tileResources[work.type.resourceName] ?: continue
             owner.gainStockpiledResource(resource, 1)
         }
+    }
+
+    //endregion
+    //region AI (Increment 8)
+
+    /**
+     * BNW Phase 2c — Increment 8. Places every one of [civ]'s **unplaced** works into a free matching
+     * slot (capital-first), for the AI's "don't leave a Great Work in the drawer" step. Authority-only:
+     * mutates canonical state directly (the AI runs on the authority).
+     *
+     * Two sources of unplaced works, both routed through the existing primitives — no new placement
+     * logic:
+     *  1. **Registered-but-unplaced** works owned by the civ (registered, absent from [slotPlacements],
+     *     creator == this civ): placed directly via [placeWork] into the first free matching slot.
+     *  2. **Banked stockpiled** works (`Great Work of …`/`Artifact` resources the civ holds because no
+     *     slot was free at creation, D6): for each free matching slot, decrement the stockpile by one
+     *     and create+place a fresh named work via [GreatWorkCreation.createAndPlace] (which finds that
+     *     same free slot and places it — it only re-banks when NO slot is free, which we've excluded).
+     *
+     * Idempotent and bounded: each pass only consumes the free slots that currently exist, and a work
+     * is removed from "unplaced" the moment it is placed. Returns the number of works newly placed.
+     */
+    fun autoFillFreeSlots(civ: Civilization): Int {
+        var placed = 0
+
+        // (1) Registered-but-unplaced works this civ created. getWorksOf includes them; filter to the
+        // ones not sitting in any slot (placed works share the same ids in slotPlacements.values).
+        val placedIds = slotPlacements.values.toHashSet()
+        val unplaced = getWorksOf(civ).filter { it.id !in placedIds }
+        for (work in unplaced) {
+            val freeSlot = GreatWorkSlotProvider.getFreeSlotsForCiv(civ, work.type).firstOrNull() ?: continue
+            placeWork(work, freeSlot)
+            placed++
+        }
+
+        // (2) Banked stockpiled works: while a free slot exists for a banked type, draw one from the
+        // stockpile and materialize it into that slot via the existing creation path.
+        for (type in GreatWorkType.entries) {
+            val resource = gameInfo.ruleset.tileResources[type.resourceName] ?: continue
+            while (civ.getResourceAmount(resource) > 0 &&
+                GreatWorkSlotProvider.getFreeSlotsForCiv(civ, type).isNotEmpty()
+            ) {
+                // Spend one banked work, then let createAndPlace find the (still-free) slot and place it.
+                civ.gainStockpiledResource(resource, -1)
+                GreatWorkCreation.createAndPlace(civ, type)
+                placed++
+            }
+        }
+
+        return placed
     }
 
     //endregion

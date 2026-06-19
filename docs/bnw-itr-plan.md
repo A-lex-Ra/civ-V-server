@@ -49,7 +49,7 @@ Baseline already shipped (verified):
 
 **Cross-increment contract:** Increment 2 calls `computeRoute`/`getMaxCapacity`/`usedCapacity` + adds to `connections`. Increment 3 reads `getRoutesEstablishedBy`/`getRoutesTouchingCity` + `getOriginCity`/`getDestinationCity`. Increment 4 calls `removeRoute*`. These method names are the frozen seam.
 
-**Save-compat:** only primitive/enum/String/collection fields → libgdx-JSON auto-serializes; old saves lack the field → default `TradeRouteManager()` (empty list) is a valid neutral state, preserved precisely because `clone()` + `setTransients()` are both updated.
+**Serialization:** only primitive/enum/String/collection fields → libgdx-JSON auto-serializes; the field is serialized via `clone()` + `setTransients()` (both updated), and a default `TradeRouteManager()` (empty list) is a valid empty state.
 
 **Projection / AI:** none yet.
 
@@ -168,7 +168,7 @@ Baseline already shipped (verified):
 
 ## Risks (all increments)
 
-- **Save-compat:** the new `GameInfo.tradeRouteManager` defaults safely on old saves ONLY because `clone()` + `setTransients()` are both updated (Increment 1). Round-trip + clone tests enforce it.
+- **Serialization correctness:** the new `GameInfo.tradeRouteManager` is serialized correctly ONLY because `clone()` + `setTransients()` are both updated (Increment 1); a default-constructed manager is a valid empty state. Round-trip + clone tests enforce it.
 - **Don't collide with the existing capital-connection "trade routes."** `CityStats.getStatsFromTradeRoute`, `CapitalConnectionsFinder`, `StatsFromTradeRoute`/`StatPercentFromTradeRoutes`, `city.isConnectedToCapital()` are the OLD mechanic and stay untouched. ITR uses distinct names and banks yields separately (D4); it only *reads* the `[stats] from each Trade Route` bonuses to light up data.
 - **Capacity = token count, Venice for free.** Add an explicit test that N tokens supports N routes.
 - **Authority vs joiner:** yields/expiry/plunder/AI run ONLY on the authority; clients receive the projected (scrubbed) view (Increment 5).

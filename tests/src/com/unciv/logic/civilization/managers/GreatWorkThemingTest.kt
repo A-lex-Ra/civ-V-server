@@ -175,6 +175,36 @@ class GreatWorkThemingTest {
     }
 
     @Test
+    fun `themed building adds its theming Culture to the city's building stats`() {
+        // BNW Phase 2c — Increment 8 (theming-Culture gap): GreatWorkTheming.getThemingStats is wired
+        // into CityConstructions.getStats(), so a themed building's declared Culture shows up in the
+        // city's per-building stats.
+        val (civ, city) = addCivWithCity()
+        addBuildingNamed(
+            city, "EraMuseum",
+            "Provides [2] [Art] Great Work slots",
+            "Provides a Theming bonus of [+5 Culture] when its Great Works are [of the same era]"
+        )
+
+        // Fill only one slot first -> NOT themed -> no theming Culture in the city's building stats.
+        placeWork(civ, city, "EraMuseum", 0, era = "Ancient era", artist = "A")
+        assertFalse("Precondition: not themed with one slot filled",
+            GreatWorkTheming.isThemed(civ, "EraMuseum", city.location))
+        val cultureBefore = city.cityConstructions.getStats().totalStats.culture
+
+        // Fill the second slot with a same-era work -> themed -> +5 Culture must appear.
+        placeWork(civ, city, "EraMuseum", 1, era = "Ancient era", artist = "B")
+        assertTrue("The building must now be themed",
+            GreatWorkTheming.isThemed(civ, "EraMuseum", city.location))
+        val cultureAfter = city.cityConstructions.getStats().totalStats.culture
+
+        assertEquals(
+            "Theming must add exactly the declared +5 Culture to the city's building stats",
+            cultureBefore + 5f, cultureAfter, 0.0001f
+        )
+    }
+
+    @Test
     fun `register is idempotent - no duplicate contributor`() {
         val (civ, _) = addCivWithCity()
         civ.tourism.tourismOutputContributors.clear()

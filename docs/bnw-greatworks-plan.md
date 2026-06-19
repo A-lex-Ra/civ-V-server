@@ -10,9 +10,9 @@ Baseline today: Great Works are **stockpiled resources** (`Great Work of Art/Wri
 
 - **D1 — Authoritative storage is a GameInfo-level `GreatWorkManager`.** Real Civ V lets you see *rivals'* works (Culture Overview), and works move between cities/civs. Holding the canonical registry once at `GameInfo` avoids cross-civ ownership bugs and a per-city sub-store the engine doesn't have. `GreatWorkManager` owns (a) every `GreatWork` object by stable id, and (b) the slot→workId placement map. A work's *owner*/*location* are derived from which slot holds it. New field on `GameInfo` (field + `clone()` line + `setTransients()` line — update ALL THREE).
 
-- **D2 — Slots are derived from building data, not stored.** A slot is identified by `GreatWorkSlot(civId, cityLocation, buildingName, slotIndex, slotType)`. Slot *existence* is recomputed on demand from each built building's slot markers (D3); only the *contents* (slotKey→workId) are serialized. Save-compat is trivial: no slot state to migrate; a sold/destroyed building drops its slots and the manager evicts orphaned placements.
+- **D2 — Slots are derived from building data, not stored.** A slot is identified by `GreatWorkSlot(civId, cityLocation, buildingName, slotIndex, slotType)`. Slot *existence* is recomputed on demand from each built building's slot markers (D3); only the *contents* (slotKey→workId) are serialized. There is no slot state to store: a sold/destroyed building drops its slots and the manager evicts orphaned placements.
 
-- **D3 — Slot counts come from a new data-driven unique, with the bundled hidden buildings as the fallback signal.** Add `UniqueType.ProvidesGreatWorkSlots` = `"Provides [amount] [param] Great Work slots"` (target `Building`; `param` ∈ Writing/Art/Music). Real visible culture buildings/wonders carry this (added in Increment 6). For migration / not-yet-edited data, `GreatWorkSlotProvider` ALSO detects the mod's existing hidden slot sub-buildings by name pattern. Slot **type** enum is `GreatWorkType { Writing, Art, Music, Artifact }`; Art slots accept both `Art` and `Artifact` works; Writing→Writing, Music→Music.
+- **D3 — Slot counts come from a new data-driven unique, with the bundled hidden buildings as the fallback signal.** Add `UniqueType.ProvidesGreatWorkSlots` = `"Provides [amount] [param] Great Work slots"` (target `Building`; `param` ∈ Writing/Art/Music). Real visible culture buildings/wonders carry this (added in Increment 6). For not-yet-edited data, `GreatWorkSlotProvider` ALSO detects the mod's existing hidden slot sub-buildings by name pattern. Slot **type** enum is `GreatWorkType { Writing, Art, Music, Artifact }`; Art slots accept both `Art` and `Artifact` works; Writing→Writing, Music→Music.
 
 - **D4 — Tourism is owned by Phase 2b — CROSS-FEATURE CONTRACT.** 2c does NOT compute tourism influence. Each Great Work yields **`2 + theming` tourism**. 2c exposes `GreatWorkManager.getTourismContribution(civ): Float` and plugs it into the 2b tourism-output aggregation seam (`TourismManager.tourismOutputContributors`, a `MutableList<() -> Float>` per the 2b plan). Until 2b lands, Increment 5 ships `getTourismContribution` + a thin self-contained adapter and a TODO at the registration point; it must not depend on 2b types compiling.
 
@@ -20,7 +20,7 @@ Baseline today: Great Works are **stockpiled resources** (`Great Work of Art/Wri
 
 - **D6 — Creation finds a free slot; no free slot = bank as stockpile (back-compat fallback).** On a Great Artist/Writer/Musician action or a dig, construct a named `GreatWork`, then search the civ's slots (capital-first, then city founded-order) for a free matching slot. Found → place. None free → fall back to `gainStockpiledResource` so the work isn't lost; notify.
 
-- **D7 — Serialization discipline.** `GreatWork` and `GreatWorkManager` implement `IsPartOfGameInfoSerialization`. gdx Json omits default-valued fields, so an old save with no `greatWorkManager` deserializes to a fresh empty manager. Every field in `clone()`. Old saves carrying stockpiled `Great Work of *`/`Artifact` must NOT crash; migration (Increment 7) converts surplus stockpiles into placed works lazily and is null-safe.
+- **D7 — Serialization discipline.** `GreatWork` and `GreatWorkManager` implement `IsPartOfGameInfoSerialization`; serialized via `clone()`+`setTransients()`. Every field is copied in `clone()`, and a default-constructed `GreatWorkManager` is a valid empty state.
 
 ---
 
@@ -47,7 +47,7 @@ Baseline today: Great Works are **stockpiled resources** (`Great Work of Art/Wri
 
 **Projection / AI / UI:** none yet.
 
-**Tests** (`tests/src/com/unciv/logic/civilization/managers/GreatWorkManagerTest.kt`, model on `PublicOpinionManagerTest`): register/get/remove works; place/getWorkInSlot/clearSlot; clone round-trip (deep copy, distinct map instances, `getWork` resolves); save-compat (default-empty manager usable after `setTransients`, no NPE).
+**Tests** (`tests/src/com/unciv/logic/civilization/managers/GreatWorkManagerTest.kt`, model on `PublicOpinionManagerTest`): register/get/remove works; place/getWorkInSlot/clearSlot; clone round-trip (deep copy, distinct map instances, `getWork` resolves); serialization correctness (a default-constructed manager is a valid empty state — usable after `setTransients`, no NPE).
 
 **Risks:** prefer non-`lateinit` defaults for serialized fields so gdx Json populates them; confirm the enum round-trips.
 
@@ -146,7 +146,7 @@ data class MoveGreatWork(val workId: String, val toCityX: Int, val toCityY: Int,
 
 **Goal:** make the bundled BNW ruleset use the new model — visible buildings/wonders carry `Provides [n] [Type] Great Work slots` and `GreatWorkThemingBonus`; delete the ~60 hidden `[X] [Great Work of …]` and `[X] [Theming Bonus]` sub-buildings.
 
-**DATA-only:** EDIT `android/assets/jsons/Civ V - Brave New World/Buildings.json` — add the new uniques to each host building/wonder (Amphitheater, Royal Library, Cathedral, Palace, Museum, Hermitage, Opera House, Globe Theatre, Sydney Opera House, Broadway, Louvre, Uffizi, …); delete the hidden sub-buildings + their `Automatically built`/`Instantly consumes`/`Unavailable <without …>` uniques. Keep the `Great Work of *`/`Artifact` stockpiled resources (fallback + old saves). Clean dangling `civilopediaText` links to removed buildings.
+**DATA-only:** EDIT `android/assets/jsons/Civ V - Brave New World/Buildings.json` — add the new uniques to each host building/wonder (Amphitheater, Royal Library, Cathedral, Palace, Museum, Hermitage, Opera House, Globe Theatre, Sydney Opera House, Broadway, Louvre, Uffizi, …); delete the hidden sub-buildings + their `Automatically built`/`Instantly consumes`/`Unavailable <without …>` uniques. Keep the `Great Work of *`/`Artifact` stockpiled resources (the no-free-slot fallback still uses them). Clean dangling `civilopediaText` links to removed buildings.
 
 **EXACT file ownership:** `Buildings.json` (+ translation `.properties` only if a building name was referenced).
 
@@ -155,22 +155,6 @@ data class MoveGreatWork(val workId: String, val toCityX: Int, val toCityY: Int,
 **Tests:** a ruleset-load/validation test — BNW loads with no unknown-unique errors; a Museum/Louvre yields the expected slot count via `GreatWorkSlotProvider`.
 
 **Risks:** the mod's per-city Tourism conditionals on the hidden buildings are lost; fold them into the 2b model or re-add as host-level `Provides [n] [Tourism]`. Flag for 2b coordination.
-
----
-
-## INCREMENT 7 — Save-compat migration of legacy stockpiled works
-
-**Goal:** an old save with banked `Great Work of *`/`Artifact` stockpiles converts them into placed `GreatWork` objects on load, without crashing.
-
-**Where:** prefer `core/src/com/unciv/logic/BackwardCompatibility.kt` (check for the existing migration hook) else `GameInfo.setTransients()` after civ/city transients: for each civ, for each `GreatWorkType` whose `resourceName` has a positive `resourceStockpiles` count, repeatedly `GreatWorkCreation.createAndPlace(civ, type, null, …)` + decrement, until exhausted or no free slot. Guard idempotent: skip if `greatWorkManager.works` already populated; add `var migratedLegacyStockpiles = false` (in `clone()`). Null-safe if resources absent.
-
-**EXACT file ownership:** `BackwardCompatibility.kt` (or `GameInfo.kt`) — migration block; `GreatWorkManager` if the flag is added.
-
-**Cross-increment contract:** uses `GreatWorkCreation` (Inc 4) + `getFreeSlotsForCiv` (Inc 2). Must run AFTER civ + city transients exist.
-
-**Tests** (`GreatWorkMigrationTest`): a civ with a 2-slot Art building + `resourceStockpiles["Great Work of Art"]=3` → 2 placed, 1 banked, flag true, second run a no-op; a `GameInfo` with no great-work stockpiles + default-empty manager loads without exception.
-
-**Risks:** migration must run on a *real* load, not on the projector's clone (the projector calls `gameInfo.clone()` + `tileMap.setTransients` but NOT `GameInfo.setTransients()` — confirm). Confirm no hot path calls `GameInfo.setTransients()` per turn.
 
 ---
 
@@ -192,7 +176,7 @@ data class MoveGreatWork(val workId: String, val toCityX: Int, val toCityY: Int,
 
 ## Risks (all increments)
 
-- **Save-compat:** `greatWorkManager` defaults empty on old saves; every field in `clone()` + survive a no-arg deserialize (prefer non-`lateinit` defaults). Migration (Inc 7) idempotent + real-loads-only.
+- **Serialization correctness:** `greatWorkManager` is serialized via `clone()`+`setTransients()`; every field copied in `clone()` and survives a no-arg deserialize (prefer non-`lateinit` defaults) so a default-constructed manager is a valid empty state.
 - **Double-counting tourism** between Inc 4 (Kotlin creation) and Inc 6 (data removal): Inc 4 only banks when no slot is free (placed works never feed the hidden consume buildings); Inc 6 removes them. Land 4→5→6 in order.
 - **Host vs joiner:** `GreatWorkManager` is canonical GameInfo state; clients issue `MoveGreatWork` intents only. Works public; the projector scrubs *placements* in unexplored cities.
 - **Adding a `GameCommand` is additive** (`@SerialName("moveGreatWork")`); the executor `when` is exhaustive (compile-forced); add the legal+illegal pair to `CommandCatalogueTest`.
