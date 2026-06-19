@@ -234,12 +234,16 @@ class PlayerViewProjectorTest {
         // otherwise leak the rival's hidden ideology), while the viewer's own opinion stays intact.
         testGame.addUnit("Warrior", civA, centerTile)
 
-        // B (a rival of the viewer A) has public-opinion state.
+        // B (a rival of the viewer A) has public-opinion state, including Increment-2 switch state.
         civB.publicOpinion.ideologyPressureByBranch["Order"] = 3.5f
         civB.publicOpinion.dissidentUnhappiness = -4
+        civB.publicOpinion.anarchyTurnsRemaining = 4
+        civB.publicOpinion.forcedSwitchPending = true
         // A (the viewer) also has public-opinion state, which must survive.
         civA.publicOpinion.ideologyPressureByBranch["Freedom"] = 2f
         civA.publicOpinion.dissidentUnhappiness = -2
+        civA.publicOpinion.anarchyTurnsRemaining = 3
+        civA.publicOpinion.forcedSwitchPending = true
 
         val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
 
@@ -252,6 +256,14 @@ class PlayerViewProjectorTest {
             "Rival B's dissident unhappiness must be zeroed",
             0, bInView.publicOpinion.dissidentUnhappiness
         )
+        assertEquals(
+            "Rival B's anarchy countdown must be zeroed",
+            0, bInView.publicOpinion.anarchyTurnsRemaining
+        )
+        assertFalse(
+            "Rival B's forced-switch flag must be cleared",
+            bInView.publicOpinion.forcedSwitchPending
+        )
 
         val aInView = projectedCiv(viewForA, civA.civID)
         assertEquals(
@@ -261,6 +273,14 @@ class PlayerViewProjectorTest {
         assertEquals(
             "Viewer A's own dissident unhappiness must be preserved",
             -2, aInView.publicOpinion.dissidentUnhappiness
+        )
+        assertEquals(
+            "Viewer A's own anarchy countdown must be preserved",
+            3, aInView.publicOpinion.anarchyTurnsRemaining
+        )
+        assertTrue(
+            "Viewer A's own forced-switch flag must be preserved",
+            aInView.publicOpinion.forcedSwitchPending
         )
     }
 

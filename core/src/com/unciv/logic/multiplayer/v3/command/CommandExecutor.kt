@@ -88,6 +88,7 @@ class CommandExecutor {
             is GameCommand.CityStateProtection -> executeCityStateProtection(gameInfo, playerCivId, command)
             is GameCommand.RespondToTrade -> executeRespondToTrade(gameInfo, playerCivId, command)
             is GameCommand.AdoptPolicy -> executeAdoptPolicy(gameInfo, playerCivId, command)
+            is GameCommand.SwitchIdeology -> executeSwitchIdeology(gameInfo, playerCivId, command)
             is GameCommand.BuyConstruction -> executeBuyConstruction(gameInfo, playerCivId, command)
             is GameCommand.RazeCity -> executeRazeCity(gameInfo, playerCivId, command)
             is GameCommand.AnnexCity -> executeAnnexCity(gameInfo, playerCivId, command)
@@ -662,6 +663,62 @@ class CommandExecutor {
 
         // Delegate to the engine (handles culture cost, branch auto-completion, triggered uniques, …).
         policyManager.adopt(policy)
+    }
+
+    /**
+     * BNW Phase 2a — Increment 2: the acting civ switches its ideology to [command]'s target branch.
+     *
+     * Mirrors [executeAdoptPolicy] / [executeDemandResponse] in shape: validate the switch is legal on
+     * the canonical state, then delegate to the shared engine entry point
+     * [com.unciv.logic.civilization.managers.PolicyManager.switchIdeology] (the same path the AI uses),
+     * which removes+refunds the old tenets, adopts the new branch start and enters anarchy.
+     *
+     * A switch is legal only when:
+     *  - the target branch exists and is an ideology ([com.unciv.models.ruleset.PolicyBranch.isIdeology]);
+     *  - the civ currently has an ideology (you *select* a first ideology via the Ideology event /
+     *    `AdoptPolicy`, you *switch* between them here) and the target differs from it;
+     *  - the civ is not already in anarchy from a previous switch; and
+     *  - the switch is either voluntarily adoptable now, OR forced by Civil Resistance
+     *    ([com.unciv.logic.civilization.managers.PublicOpinionManager.forcedSwitchPending]).
+     *
+     * On a forced switch the pending Civil-Resistance [com.unciv.logic.civilization.PopupAlert]
+     * (an [AlertType.Event] carrier) is consumed so it isn't presented again.
+     */
+    private fun executeSwitchIdeology(gameInfo: GameInfo, playerCivId: String, command: GameCommand.SwitchIdeology) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val policyManager = actingCiv.policies
+
+        val toBranch = gameInfo.ruleset.policyBranches[command.toBranchName]
+            ?: throw CommandException("'${command.toBranchName}' is not a known policy branch in this ruleset")
+        if (!toBranch.isIdeology)
+            throw CommandException("'${command.toBranchName}' is not an ideology")
+
+        val currentIdeology = policyManager.getCurrentIdeology()
+            ?: throw CommandException("'$playerCivId' has no current ideology to switch from")
+        if (currentIdeology.name == toBranch.name)
+            throw CommandException("'$playerCivId' already follows the ideology '${command.toBranchName}'")
+
+        if (actingCiv.publicOpinion.isInAnarchy())
+            throw CommandException("'$playerCivId' is in anarchy and cannot switch ideology right now")
+
+        // The switch must be either voluntarily adoptable (the same rule gate AdoptPolicy uses, minus
+        // the "already adopted" check the switch path handles), or forced by Civil Resistance.
+        val forced = actingCiv.publicOpinion.forcedSwitchPending
+        if (!forced && !policyManager.isAdoptable(toBranch))
+            throw CommandException(
+                "'${command.toBranchName}' is not adoptable by '$playerCivId' right now and no Civil Resistance forces the switch"
+            )
+
+        // Delegate to the engine (removes+refunds old tenets, adopts the new branch start, enters anarchy).
+        policyManager.switchIdeology(toBranch)
+
+        // On a forced switch, consume the actionable Civil-Resistance alert so it isn't re-presented.
+        if (forced) {
+            actingCiv.popupAlerts.removeAll {
+                it.type == AlertType.Event &&
+                    it.value == com.unciv.logic.civilization.managers.PublicOpinionManager.CIVIL_RESISTANCE_EVENT_NAME
+            }
+        }
     }
 
     // endregion

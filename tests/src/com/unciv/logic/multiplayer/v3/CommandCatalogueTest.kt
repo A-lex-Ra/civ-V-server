@@ -8,11 +8,13 @@ import com.unciv.logic.civilization.PopupAlert
 import com.unciv.logic.files.UncivFiles
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.map.tile.Tile
+import com.unciv.logic.civilization.managers.PublicOpinionManager
 import com.unciv.logic.multiplayer.v3.command.CommandException
 import com.unciv.logic.multiplayer.v3.command.CommandExecutor
 import com.unciv.models.UnitActionType
 import com.unciv.models.ruleset.Event
 import com.unciv.models.ruleset.EventChoice
+import com.unciv.models.ruleset.PolicyBranch
 import com.unciv.network.command.GameCommand
 import com.unciv.testing.GdxTestRunner
 import com.unciv.testing.TestGame
@@ -383,6 +385,142 @@ class CommandCatalogueTest {
     fun resolveUnknownEventIsRejected() {
         assertThrows(CommandException::class.java) {
             executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.ResolveEvent("No Such Event", 0))
+        }
+    }
+
+    // endregion
+    // region SwitchIdeology
+
+    /**
+     * Creates an ideology policy branch under [name]. Uses the `Remove [Ideology]` data marker so
+     * [PolicyBranch.isIdeology] detects it (Signal 2) WITHOUT a mutual-exclusion marker — so a civ
+     * already following one ideology can still *voluntarily* adopt this one (no `Unavailable <after
+     * adopting [other]>` gate), which keeps the legal-switch case simple.
+     */
+    private fun createIdeologyBranch(name: String): PolicyBranch {
+        val branch = testGame.createPolicyBranch("Remove [Ideology] [in capital] <hidden from users>")
+        val autoName = branch.name
+        testGame.ruleset.policyBranches.remove(autoName)
+        testGame.ruleset.policies.remove(autoName)
+        val complete = testGame.ruleset.policies.remove(autoName + com.unciv.models.ruleset.Policy.branchCompleteSuffix)
+        branch.name = name
+        // The real ruleset loader sets a branch start's `requires` to an empty list (members get
+        // [branchName]); replicate it so PolicyManager.isAdoptable (which does requires!!) doesn't NPE.
+        branch.requires = ArrayList()
+        // isAdoptable also looks up ruleset.eras[branch.era]!! — a fresh branch has era="" which would
+        // NPE, so anchor it to a real era.
+        branch.era = testGame.ruleset.eras.keys.first()
+        testGame.ruleset.policyBranches[name] = branch
+        testGame.ruleset.policies[name] = branch
+        if (complete != null) {
+            complete.name = name + com.unciv.models.ruleset.Policy.branchCompleteSuffix
+            complete.requires = arrayListOf(name)
+            testGame.ruleset.policies[complete.name] = complete
+        }
+        return branch
+    }
+
+    /**
+     * Mark [branch] as the civ's adopted ideology WITHOUT running the engine adoption (so the branch's
+     * data-marker uniques never fire). Adds both the branch start AND its auto-complete to the adopted
+     * set so the state is consistent — i.e. a later [com.unciv.logic.civilization.managers.PolicyManager.removePolicy]
+     * cascade won't try to remove a non-adopted "Complete" policy.
+     */
+    private fun adoptIdeologyDirectly(branch: PolicyBranch) {
+        val adopted = civInfo.policies.getAdoptedPolicies()
+        adopted.add(branch.name)
+        adopted.add(branch.name + com.unciv.models.ruleset.Policy.branchCompleteSuffix)
+    }
+
+    @Test
+    fun switchIdeologyChangesIdeologyAndEntersAnarchy() {
+        val from = createIdeologyBranch("IdeologyFrom")
+        val to = createIdeologyBranch("IdeologyTo")
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        adoptIdeologyDirectly(from)
+        assertEquals(from.name, civInfo.policies.getCurrentIdeology()?.name)
+
+        executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.SwitchIdeology(to.name))
+
+        assertEquals("The civ should now follow the new ideology", to.name, civInfo.policies.getCurrentIdeology()?.name)
+        assertFalse("The old ideology branch must no longer be adopted",
+            civInfo.policies.isAdopted(from.name))
+        assertTrue("The civ should be in anarchy after switching",
+            civInfo.publicOpinion.isInAnarchy())
+    }
+
+    @Test
+    fun switchIdeologyWhenForcedConsumesTheCivilResistanceAlert() {
+        val from = createIdeologyBranch("ForcedFrom")
+        val to = createIdeologyBranch("ForcedTo")
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        adoptIdeologyDirectly(from)
+        // Simulate Civil Resistance: forced flag set + the actionable alert queued (as recompute would).
+        civInfo.publicOpinion.forcedSwitchPending = true
+        civInfo.popupAlerts.add(com.unciv.logic.civilization.PopupAlert(
+            AlertType.Event, PublicOpinionManager.CIVIL_RESISTANCE_EVENT_NAME))
+
+        executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.SwitchIdeology(to.name))
+
+        assertEquals("Forced switch should change the ideology", to.name, civInfo.policies.getCurrentIdeology()?.name)
+        assertTrue("The Civil-Resistance alert must be consumed on a forced switch",
+            civInfo.popupAlerts.none {
+                it.type == AlertType.Event && it.value == PublicOpinionManager.CIVIL_RESISTANCE_EVENT_NAME
+            })
+    }
+
+    @Test
+    fun switchIdeologyWithNoCurrentIdeologyIsRejectedAndStateUnchanged() {
+        val to = createIdeologyBranch("TargetIdeology")
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        // civInfo follows no ideology -> you can't *switch*, only *select* a first one.
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.SwitchIdeology(to.name))
+        }
+        assertEquals("No ideology should have been adopted on a rejected switch",
+            null, civInfo.policies.getCurrentIdeology())
+        assertFalse("No anarchy on a rejected switch", civInfo.publicOpinion.isInAnarchy())
+    }
+
+    @Test
+    fun switchIdeologyWhileInAnarchyIsRejectedAndStateUnchanged() {
+        val from = createIdeologyBranch("AnarchyFrom")
+        val to = createIdeologyBranch("AnarchyTo")
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        civInfo.policies.getAdoptedPolicies().add(from.name)
+        // Already mid-switch: in anarchy from a previous switch.
+        civInfo.publicOpinion.anarchyTurnsRemaining = 3
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.SwitchIdeology(to.name))
+        }
+        assertEquals("Ideology must be unchanged while in anarchy", from.name, civInfo.policies.getCurrentIdeology()?.name)
+        assertFalse("The target must not have been adopted", civInfo.policies.isAdopted(to.name))
+    }
+
+    @Test
+    fun switchToNonIdeologyBranchIsRejected() {
+        val from = createIdeologyBranch("RealIdeology")
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        civInfo.policies.getAdoptedPolicies().add(from.name)
+        // A plain (non-ideology) branch: no markers -> isIdeology == false.
+        val plainBranch = testGame.createPolicyBranch("[+10]% Production")
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.SwitchIdeology(plainBranch.name))
+        }
+        assertEquals("Ideology must be unchanged after a rejected non-ideology switch",
+            from.name, civInfo.policies.getCurrentIdeology()?.name)
+    }
+
+    @Test
+    fun switchToUnknownBranchIsRejected() {
+        val from = createIdeologyBranch("KnownIdeology")
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        civInfo.policies.getAdoptedPolicies().add(from.name)
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.SwitchIdeology("No Such Branch"))
         }
     }
 

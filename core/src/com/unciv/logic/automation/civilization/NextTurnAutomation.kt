@@ -64,6 +64,7 @@ object NextTurnAutomation {
             TradeAutomation.exchangeLuxuries(civInfo)
             
             issueRequests(civInfo)
+            considerIdeologySwitch(civInfo) // BNW Phase 2a — Increment 2 (guarded; usually a no-op)
             adoptPolicy(civInfo)  // todo can take a second - why?
             freeUpSpaceResources(civInfo)
         } else if (civInfo.isCityState) {
@@ -283,6 +284,48 @@ object NextTurnAutomation {
             civInfo.tech.techsToResearch.add(techToResearch.name)
         }
     }
+
+    /**
+     * BNW Phase 2a — Increment 2: guarded AI ideology-switch decision. Almost always a no-op; the AI
+     * switches only when it already has an ideology, is NOT mid-anarchy, the target is a *different*
+     * ideology, and either (a) Civil Resistance is forcing the switch
+     * ([com.unciv.logic.civilization.managers.PublicOpinionManager.forcedSwitchPending]), or (b) the
+     * surrounding-preferred ideology now outweighs its own by a large branch-priority margin AND the
+     * civ would also feel real dissident unhappiness. Uses the same shared engine entry point as the
+     * command executor ([com.unciv.logic.civilization.managers.PolicyManager.switchIdeology]).
+     */
+    private fun considerIdeologySwitch(civInfo: Civilization) {
+        val publicOpinion = civInfo.publicOpinion
+        if (publicOpinion.isInAnarchy()) return
+        val currentIdeology = civInfo.policies.getCurrentIdeology() ?: return
+        val preferred = publicOpinion.getPreferredIdeology() ?: return
+        if (preferred.name == currentIdeology.name) return
+
+        if (publicOpinion.forcedSwitchPending) {
+            // Forced by Civil Resistance: switch to the surrounding-preferred ideology regardless of
+            // whether it is voluntarily adoptable (ideologies are mutually exclusive, so a rival one is
+            // never "adoptable" while we hold ours — the forced switch is the only way to move).
+            civInfo.policies.switchIdeology(preferred)
+            return
+        }
+
+        // Voluntary switch only on a LARGE incentive: the preferred ideology must both out-prioritize
+        // the current one by a wide margin AND the civ must be feeling meaningful dissident unhappiness.
+        val priorityMap = civInfo.policies.priorityMap
+        val preferredPriority = priorityMap[preferred] ?: 0
+        val currentPriority = priorityMap[currentIdeology] ?: 0
+        val priorityDeltaLargeEnough = preferredPriority - currentPriority >= IDEOLOGY_SWITCH_PRIORITY_DELTA
+        val feelingPressure = publicOpinion.dissidentUnhappiness <= IDEOLOGY_SWITCH_UNHAPPINESS
+        if (priorityDeltaLargeEnough && feelingPressure)
+            civInfo.policies.switchIdeology(preferred)
+    }
+
+    /** Minimum branch-priority advantage of the surrounding-preferred ideology over the AI's current
+     *  one before a voluntary switch is even considered (a deliberately high bar). */
+    private const val IDEOLOGY_SWITCH_PRIORITY_DELTA = 15
+    /** The AI also won't voluntarily switch unless it is feeling at least this much (≤ 0) dissident
+     *  unhappiness from the mismatch. */
+    private const val IDEOLOGY_SWITCH_UNHAPPINESS = -5
 
     private fun adoptPolicy(civInfo: Civilization) {
         val rng = civInfo.state.stateBasedRandom("NextTurnAutomation.adoptPolicy")

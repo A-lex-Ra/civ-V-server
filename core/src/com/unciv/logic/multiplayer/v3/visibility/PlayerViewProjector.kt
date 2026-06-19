@@ -256,9 +256,13 @@ object PlayerViewProjector {
         // A rival's ideology is already hidden (adopted policies are scrubbed above), so its derived
         // public opinion must be hidden too, or a client could infer the rival's ideology from the
         // pressure meter. Clearing the map and zeroing the penalty is a valid empty state (matches a
-        // civ with no ideology), so the client's setTransients() deserializes it cleanly.
+        // civ with no ideology), so the client's setTransients() deserializes it cleanly. The
+        // Increment-2 switch state (anarchy countdown / forced-switch flag) is likewise an authority
+        // secret about a rival's internal politics — zero/clear it (a valid "not switching" state).
         civ.publicOpinion.ideologyPressureByBranch.clear()
         civ.publicOpinion.dissidentUnhappiness = 0
+        civ.publicOpinion.anarchyTurnsRemaining = 0
+        civ.publicOpinion.forcedSwitchPending = false
 
         // --- Production / purchasing knowledge held at the civ level ---
         civ.civConstructions.boughtItemsWithIncreasingPrice.clear()

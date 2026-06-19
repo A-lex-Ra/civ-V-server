@@ -43,7 +43,9 @@ class TurnManager(val civInfo: Civilization) {
         civInfo.civConstructions.startTurn()
         civInfo.attacksSinceTurnStart.clear()
         // BNW Phase 2a — recompute ideological public opinion (authority-only, D2) BEFORE stats, so
-        // the dissident-unhappiness term is current when getHappinessBreakdown() reads it.
+        // the dissident-unhappiness term is current when getHappinessBreakdown() reads it. Also count
+        // down any post-switch anarchy (Increment 2); the [-100]% temporary uniques expire on their own.
+        civInfo.publicOpinion.decrementAnarchy()
         civInfo.publicOpinion.recompute(civInfo.gameInfo.getIdeologicalPressureSource())
         civInfo.updateStatsForNextTurn() // for things that change when turn passes e.g. golden age, city state influence
 

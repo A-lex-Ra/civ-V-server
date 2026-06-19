@@ -20,6 +20,10 @@ class PolicyManager : IsPartOfGameInfoSerialization {
         /** Used in [getCultureRefundMap] when refunding more policies than were bought with culture
          *  to indicate the "surplus" policies - those must have been adopted as free policies. */
         const val FREE_POLICY_MARKER = -1
+
+        /** BNW Phase 2a — Civ-V base anarchy length (turns) on Standard speed when switching
+         *  ideology, before the game-speed modifier. */
+        const val BASE_ANARCHY_TURNS = 5
     }
 
     @Transient
@@ -352,4 +356,62 @@ class PolicyManager : IsPartOfGameInfoSerialization {
     @Readonly
     fun allPoliciesAdopted(checkEra: Boolean) =
         getRulesetPolicies().values.none { isAdoptable(it, checkEra) }
+
+    /**
+     * BNW Phase 2a — Increment 2: switch this civ's ideology to [toBranch].
+     *
+     * Shared by the AI ([NextTurnAutomation]) and the v3 command executor
+     * ([com.unciv.logic.multiplayer.v3.command.CommandExecutor.executeSwitchIdeology]) so both apply
+     * the switch identically on the canonical state. The CALLER is responsible for validating the
+     * switch is legal (target is a different ideology, the civ isn't already in anarchy, …) — this
+     * method assumes a legal call and only performs the mutation.
+     *
+     * Effects, mirroring Civ V's ideology switch:
+     *  1. **Lose the old ideology's tenets, partially refunded.** Reuses the exact refund machinery of
+     *     [UniqueType.OneTimeRemovePolicyRefund] ([getAdoptedPoliciesMatching] in removal order +
+     *     [getCultureRefundMap] + [removePolicy]): every adopted policy in the old branch (members,
+     *     plus the branch start itself) is removed; culture-bought tenets refund [refundPercentage]%
+     *     of their cost, "free" surplus tenets refund a free policy instead.
+     *  2. **Adopt the new ideology's branch start** via [adopt] (runs its triggerable uniques, the
+     *     standard adoption side effects).
+     *  3. **Enter anarchy** for [getAnarchyTurns] turns (scaled by game speed), applying a civ-wide
+     *     `[-100]% Production` / `[-100]% Science` via the engine's own temporary-unique machinery
+     *     (see [com.unciv.logic.civilization.managers.PublicOpinionManager.applyAnarchy]).
+     *
+     * @param refundPercentage culture refunded for the lost tenets (Civ V refunds 50%).
+     */
+    fun switchIdeology(toBranch: PolicyBranch, refundPercentage: Int = 50) {
+        // 1. Remove the OLD ideology's tenets with refund (mirrors OneTimeRemovePolicyRefund).
+        val oldIdeology = getCurrentIdeology()
+        if (oldIdeology != null) {
+            // "[branch] branch" matches all member policies plus the branch start; forRemoval sorts
+            // descending by json position so members are removed before the branch start.
+            val policiesToRemove = getAdoptedPoliciesMatching("[${oldIdeology.name}] branch", forRemoval = true)
+            val refundMap = getCultureRefundMap(policiesToRemove, refundPercentage)
+            for ((policy, refund) in refundMap) {
+                if (refund == FREE_POLICY_MARKER) {
+                    removePolicy(policy, assumeWasFree = true)
+                    freePolicies++
+                } else {
+                    removePolicy(policy)
+                    addCulture(refund)
+                }
+            }
+        }
+
+        // 2. Adopt the new ideology's branch start (free of culture cost — this is a switch, not a
+        //    normal adoption; grant a free policy so adopt() doesn't try to spend culture).
+        freePolicies++
+        adopt(toBranch)
+
+        // 3. Enter anarchy (no production / research) for the scaled number of turns.
+        civInfo.publicOpinion.applyAnarchy(getAnarchyTurns())
+    }
+
+    /** Number of anarchy turns when switching ideology, scaled by game speed (the same way
+     *  [com.unciv.logic.civilization.managers.TurnManager.getTurnsBeforeRevolt] scales). Civ V uses
+     *  a base of ~5 turns on Standard speed. */
+    @Readonly
+    fun getAnarchyTurns(): Int =
+        (BASE_ANARCHY_TURNS * civInfo.gameInfo.speed.modifier.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
 }

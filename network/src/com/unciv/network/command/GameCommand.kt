@@ -271,6 +271,28 @@ sealed interface GameCommand {
 
     // endregion
 
+    // region Ideology
+
+    /**
+     * BNW Phase 2a — Increment 2. The acting civ switches its ideology to the policy branch named
+     * [toBranchName] (an ideology branch — [com.unciv.models.ruleset.PolicyBranch.isIdeology]).
+     *
+     * Switching costs anarchy (N turns of no production / research) and loses the old ideology's
+     * tenets (partially refunded). Validated on the authority
+     * (`CommandExecutor.executeSwitchIdeology`): the civ must already have a *different* ideology,
+     * not be in anarchy, and the switch must be either voluntarily adoptable or forced by Civil
+     * Resistance (`PublicOpinionManager.forcedSwitchPending`). Applied via the shared
+     * `PolicyManager.switchIdeology(toBranch)` (the same path the AI uses). When the switch is the
+     * forced one, the pending Civil-Resistance `PopupAlert` is consumed.
+     */
+    @Serializable
+    @SerialName("switchIdeology")
+    data class SwitchIdeology(
+        val toBranchName: String
+    ) : GameCommand
+
+    // endregion
+
     // region City management
 
     /**
