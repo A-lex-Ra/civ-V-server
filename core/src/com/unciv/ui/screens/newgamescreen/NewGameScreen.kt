@@ -106,6 +106,7 @@ class NewGameScreen(
                 ) {
                     val gameSetupInfo = GameSetupInfo().apply {
                         gameParameters.espionageEnabled = true
+                        gameParameters.baseRuleset = com.unciv.models.metadata.ALL_DLC_RULESET
                     }
                     game.replaceCurrentScreen(NewGameScreen(gameSetupInfo))
                 }.open(true)

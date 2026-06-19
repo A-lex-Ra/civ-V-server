@@ -194,3 +194,7 @@ detekt/reports.html
 /buildSrc/.kotlin/errors/*
 /buildSrc/.kotlin/sessions/*
 /.claude/
+
+# Local reference clone of the RobLoach Brave New World mod (nested .git). Its data is vendored into
+# android/assets/jsons/Civ V - Brave New World/ — the working tree only needs it for reference.
+/vendor/

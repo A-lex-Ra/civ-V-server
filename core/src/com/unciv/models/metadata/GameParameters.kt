@@ -63,6 +63,10 @@ class GameParameters : IsPartOfGameInfoSerialization { // Default values are the
     /** Time a player recover on their timer before they can be forced to resign. Time isn't added if the player get their turn skipped*/
     var minutesRecoveredPerTurn = 60 * 24
 
+    // Serialization default stays Gods & Kings for SAVE COMPATIBILITY: gdx Json omits fields equal to
+    // this default, so older saves written under the historical G&K default carry no baseRuleset and must
+    // still resolve to G&K on load. The NEW-GAME default ("Civ V - All DLC") is applied in the new-game
+    // setup path (GameSetupInfo.fromSettings / NewGameScreen "Reset to defaults"), NOT here.
     var baseRuleset: String = BaseRuleset.Civ_V_GnK.fullName
     var mods = LinkedHashSet<String>()
 

@@ -5,8 +5,12 @@ import com.badlogic.gdx.files.FileHandle
 import com.unciv.UncivGame
 import com.unciv.logic.UncivShowableException
 import com.unciv.logic.map.MapParameters
+import com.unciv.models.metadata.ALL_DLC_RULESET
+import com.unciv.models.metadata.BUNDLED_BNW_RULESET
 import com.unciv.models.metadata.BaseRuleset
 import com.unciv.models.metadata.GameParameters
+import com.unciv.models.ruleset.unique.Unique
+import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.ruleset.validation.RulesetErrorList
 import com.unciv.models.ruleset.validation.RulesetErrorSeverity
 import com.unciv.models.ruleset.validation.getRelativeTextDistance
@@ -72,6 +76,41 @@ object RulesetCache : HashMap<String, Ruleset>() {
         // - this previously lead to "can't find Vanilla ruleset" if the user had a lot of mods and downloaded a new one
         this.clear()
         this.putAll(newRulesets)
+
+        // Synthesize the built-in "Civ V - All DLC" base ruleset = Gods & Kings + bundled Brave New World.
+        // Engine-merged in memory (applies BNW's ModOptions removals + recomputes building costs / resource
+        // transients); we do NOT ship a pre-merged jsons/Civ V - All DLC/ folder. Wrapped so any failure logs
+        // and does not break startup.
+        try {
+            val bnwPath = "jsons/$BUNDLED_BNW_RULESET"
+            val bnwHandle = if (consoleMode) FileHandle(bnwPath) else Gdx.files.internal(bnwPath)
+            if (bnwHandle.exists()) {
+                val bnw = Ruleset().apply { name = BUNDLED_BNW_RULESET; load(bnwHandle) }
+                this[BUNDLED_BNW_RULESET] = bnw
+                val gnk = this[BaseRuleset.Civ_V_GnK.fullName]
+                if (gnk != null) {
+                    val allDlc = getComplexRuleset(gnk, listOf(bnw))
+                    allDlc.name = ALL_DLC_RULESET
+                    allDlc.modOptions.isBaseRuleset = true
+                    // getComplexRuleset copies the BNW extension's modOptions uniques onto the result.
+                    // The mod-compatibility metadata ("Mod requires [Gods & Kings]" / "Mod is incompatible
+                    // with [...]") is extension-only and is *invalid on a base ruleset* (G&K is already baked
+                    // in here) - it would raise a blocking validation Error. Strip those before they are read.
+                    allDlc.modOptions.uniques.removeAll { uniqueText ->
+                        Unique(uniqueText).type.let {
+                            it == UniqueType.ModRequires || it == UniqueType.ModIncompatibleWith
+                        }
+                    }
+                    this[ALL_DLC_RULESET] = allDlc
+                } else {
+                    Log.error("Cannot synthesize '$ALL_DLC_RULESET': base ruleset '${BaseRuleset.Civ_V_GnK.fullName}' not loaded")
+                }
+            } else {
+                Log.error("Cannot synthesize '$ALL_DLC_RULESET': bundled '$BUNDLED_BNW_RULESET' not found at $bnwPath")
+            }
+        } catch (ex: Exception) {
+            Log.error("Failed to synthesize the '$ALL_DLC_RULESET' ruleset", ex)
+        }
 
         val endTimeMs = System.currentTimeMillis()
         val loadTime = endTimeMs - startTimeMs

@@ -30,6 +30,9 @@ class GameSetupInfo(
                 mapParameters.shape = MapShape.rectangular
                 mapParameters.worldWrap = true
                 gameParameters.espionageEnabled = true
+                // New-game default ruleset = the bundled full-DLC experience (G&K + Brave New World).
+                // Kept here rather than in GameParameters' default to preserve old-save compatibility.
+                gameParameters.baseRuleset = ALL_DLC_RULESET
             }
             else GameSetupInfo(lastGameSetup!!).apply {
                 mapParameters.reseed()
