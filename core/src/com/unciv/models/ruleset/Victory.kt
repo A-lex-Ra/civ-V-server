@@ -147,8 +147,20 @@ class Milestone(val uniqueDescription: String, private val parentVictory: Victor
             }
             MilestoneType.DestroyAllPlayers ->
                 civInfo.gameInfo.getAliveMajorCivs() == listOf(civInfo)
-            MilestoneType.CaptureAllCapitals ->
-                originalMajorCapitalsOwned(civInfo) == civsWithPotentialCapitalsToOwn(civInfo.gameInfo).size
+            MilestoneType.CaptureAllCapitals -> {
+                val potentialCapitalOwners = civsWithPotentialCapitalsToOwn(civInfo.gameInfo)
+                // A "domination" win means controlling EVERY major civ's original capital — i.e. having
+                // taken them from someone. In a world that only ever had ONE major civ, "owning all
+                // capitals" is just owning the one you founded, which must NOT count as conquest. This
+                // bites the authoritative multiplayer (multiplayer-v3): founding is streamed, so the host
+                // can momentarily be the sole major with a capital (others haven't founded yet, or a
+                // degenerate single-major game), and the engine would otherwise declare a bogus 1-of-1
+                // Domination victory the instant the capital is placed. Real (multi-civ) games always have
+                // >1 potential owner, so this guard is a no-op there — including the legitimate
+                // last-civ-standing win, where the winner owns every fallen major's captured capital.
+                potentialCapitalOwners.size > 1 &&
+                    originalMajorCapitalsOwned(civInfo) == potentialCapitalOwners.size
+            }
             MilestoneType.CompletePolicyBranches ->
                 civInfo.policies.completedBranches.size >= params[0].toInt()
             MilestoneType.MoreCountableThanEachPlayer -> {
