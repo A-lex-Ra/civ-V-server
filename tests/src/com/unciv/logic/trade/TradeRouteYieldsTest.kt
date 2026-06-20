@@ -17,9 +17,9 @@ import org.junit.runner.RunWith
 /**
  * BNW Phase 3 — Increment 3: [TradeRouteYields.computeYields] + [TradeRouteManager.applyYieldsForOwner].
  *
- * Verifies the documented formulas: domestic routes yield owner gold only; international routes pay double
- * owner gold, science (when the destination is more advanced), and destination-owner gold; and a per-turn
- * application banks both the owner's and the destination owner's gold.
+ * Verifies the documented formulas: domestic routes carry era-scaled Food OR Production to the destination
+ * city (no gold/science); international routes pay double owner gold, destination-owner gold, and catch-up
+ * science; and a per-turn application banks the monetary yields and delivers internal Food/Production.
  */
 @RunWith(GdxTestRunner::class)
 class TradeRouteYieldsTest {
@@ -45,28 +45,48 @@ class TradeRouteYieldsTest {
         testGame.ruleset.tileResources[TradeRouteManager.TRADE_ROUTE_RESOURCE] = tradeRouteResource
     }
 
-    private fun connection(o: City, d: City) = TradeRouteConnection().apply {
-        originCityId = o.id
-        destinationCityId = d.id
-        ownerCivId = owner.civID
-        type = TradeRouteType.Land
-        length = 5
-        establishedTurn = 1
-    }
+    private fun connection(o: City, d: City, yield: TradeRouteYield = TradeRouteYield.None) =
+        TradeRouteConnection().apply {
+            originCityId = o.id
+            destinationCityId = d.id
+            ownerCivId = owner.civID
+            type = TradeRouteType.Land
+            length = 5
+            establishedTurn = 1
+            internalYield = yield
+        }
 
     @Test
-    fun `a domestic route yields owner gold but no science or destination-owner gold`() {
+    fun `a domestic route carries food or production to the destination and no gold or science`() {
         val capital = testGame.addCity(owner, testGame.getTile(0, 0), initialPopulation = 5)
         val ownCity = testGame.addCity(owner, testGame.getTile(3, 0), initialPopulation = 5)
-        val result = TradeRouteYields.computeYields(connection(capital, ownCity), testGame.gameInfo)
 
-        assertTrue("Domestic owner gold must be positive", result.ownerGold > 0)
-        assertEquals("Domestic route grants no science", 0, result.ownerScience)
-        assertEquals("Domestic route grants no destination-owner gold", 0, result.destOwnerGold)
+        val foodRoute = TradeRouteYields.computeYields(connection(capital, ownCity, TradeRouteYield.Food), testGame.gameInfo)
+        assertTrue("A domestic Food route must deliver food to the destination", foodRoute.destFood > 0)
+        assertEquals("A domestic Food route delivers no production", 0, foodRoute.destProduction)
+        assertEquals("Domestic route grants no owner gold", 0, foodRoute.ownerGold)
+        assertEquals("Domestic route grants no science", 0, foodRoute.ownerScience)
+        assertEquals("Domestic route grants no destination-owner gold", 0, foodRoute.destOwnerGold)
+
+        val prodRoute = TradeRouteYields.computeYields(connection(capital, ownCity, TradeRouteYield.Production), testGame.gameInfo)
+        assertTrue("A domestic Production route must deliver production", prodRoute.destProduction > 0)
+        assertEquals("A domestic Production route delivers no food", 0, prodRoute.destFood)
     }
 
     @Test
-    fun `an international route pays more owner gold than the same-population domestic route`() {
+    fun `a sea domestic route carries double a land one`() {
+        val capital = testGame.addCity(owner, testGame.getTile(0, 0), initialPopulation = 5)
+        val ownCity = testGame.addCity(owner, testGame.getTile(3, 0), initialPopulation = 5)
+        val land = TradeRouteYields.computeYields(
+            connection(capital, ownCity, TradeRouteYield.Production), testGame.gameInfo)
+        val sea = TradeRouteYields.computeYields(
+            connection(capital, ownCity, TradeRouteYield.Production).apply { type = TradeRouteType.Sea }, testGame.gameInfo)
+        assertEquals("Sea internal routes carry double the land amount",
+            land.destProduction * 2, sea.destProduction)
+    }
+
+    @Test
+    fun `an international route pays owner and destination-owner gold while a domestic one pays none`() {
         val capital = testGame.addCity(owner, testGame.getTile(0, 0), initialPopulation = 5)
         val ownCity = testGame.addCity(owner, testGame.getTile(3, 0), initialPopulation = 5)
         val foreignCity = testGame.addCity(foreign, testGame.getTile(-3, 0), initialPopulation = 5)
@@ -74,9 +94,9 @@ class TradeRouteYieldsTest {
         val domestic = TradeRouteYields.computeYields(connection(capital, ownCity), testGame.gameInfo)
         val international = TradeRouteYields.computeYields(connection(capital, foreignCity), testGame.gameInfo)
 
-        assertTrue("International owner gold must exceed the equivalent domestic route's gold " +
-            "(domestic=${domestic.ownerGold}, international=${international.ownerGold})",
-            international.ownerGold > domestic.ownerGold)
+        assertEquals("A domestic route pays no owner gold", 0, domestic.ownerGold)
+        assertTrue("International owner gold must be positive (was ${international.ownerGold})",
+            international.ownerGold > 0)
         assertTrue("International route must grant destination-owner gold", international.destOwnerGold > 0)
     }
 
@@ -112,6 +132,27 @@ class TradeRouteYieldsTest {
 
         assertTrue("Owner gold must rise after applying yields", owner.gold > ownerGoldBefore)
         assertTrue("Destination-owner gold must rise on an international route", foreign.gold > foreignGoldBefore)
+    }
+
+    @Test
+    fun `applyYieldsForOwner delivers internal food and production to the destination city`() {
+        val capital = testGame.addCity(owner, testGame.getTile(0, 0), initialPopulation = 5)
+        val foodCity = testGame.addCity(owner, testGame.getTile(3, 0), initialPopulation = 3)
+        val prodCity = testGame.addCity(owner, testGame.getTile(-3, 0), initialPopulation = 3)
+        manager.connections.add(connection(capital, foodCity, TradeRouteYield.Food))
+        manager.connections.add(connection(capital, prodCity, TradeRouteYield.Production))
+
+        val foodBefore = foodCity.population.foodStored
+        val prodOverflowBefore = prodCity.cityConstructions.productionOverflow
+
+        manager.applyYieldsForOwner(owner)
+
+        assertTrue("An internal Food route must raise the destination's stored food " +
+            "(before=$foodBefore, after=${foodCity.population.foodStored})",
+            foodCity.population.foodStored > foodBefore)
+        assertTrue("An internal Production route must add production to the destination " +
+            "(before=$prodOverflowBefore, after=${prodCity.cityConstructions.productionOverflow})",
+            prodCity.cityConstructions.productionOverflow > prodOverflowBefore)
     }
 
     @Test

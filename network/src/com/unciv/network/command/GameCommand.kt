@@ -755,6 +755,10 @@ sealed interface GameCommand {
      * wire). The authority resolves the unit + destination city, validates origin / capacity / route-type /
      * connectivity / max-length (all `CommandException`), then records the route via the shared
      * `TradeRouteManager.establish`.
+     *
+     * [internalYield] is the `TradeRouteYield` enum name (`"Food"` / `"Production"`) a DOMESTIC route should
+     * carry; `""` (the default) means "unspecified" — the authority defaults a domestic route to Production
+     * and ignores the field for an international route.
      */
     @Serializable
     @SerialName("establishTradeRoute")
@@ -762,7 +766,8 @@ sealed interface GameCommand {
         val unitX: Int,
         val unitY: Int,
         val destCityX: Int,
-        val destCityY: Int
+        val destCityY: Int,
+        val internalYield: String = ""
     ) : GameCommand
 
     /**

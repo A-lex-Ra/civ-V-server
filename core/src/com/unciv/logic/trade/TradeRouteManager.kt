@@ -150,9 +150,13 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
      * The route's [TradeRouteConnection.type] is derived from the unit's movement type (D6); the parked
      * unit's id is recorded so it can be plundered (Increment 4). The unit parks (movement spent, no
      * ongoing action) but is NOT consumed, and NO `Trade Route` token is spent (capacity is enforced by
-     * count).
+     * count). [internalYield] is what a DOMESTIC route carries (Food/Production); it is ignored for an
+     * international route (different owning civ at the destination), which always carries gold/science.
      */
-    fun establish(originCity: City, destCity: City, unit: MapUnit): TradeRouteConnection {
+    fun establish(
+        originCity: City, destCity: City, unit: MapUnit,
+        internalYield: TradeRouteYield = TradeRouteYield.None
+    ): TradeRouteConnection {
         val type = if (unit.baseUnit.isLandUnit) TradeRouteType.Land else TradeRouteType.Sea
         val length = computeRoute(originCity, destCity, type) ?: 0
         val connection = TradeRouteConnection().apply {
@@ -163,6 +167,7 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
             this.length = length
             establishedTurn = gameInfo.turns
             unitId = unit.id
+            this.internalYield = internalYield
         }
         connections.add(connection)
         unit.currentMovement = 0f
@@ -184,6 +189,9 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
      *    has no current research),
      *  - destination-owner gold → that civ's `addGold` (international routes only; skipped if same owner
      *    or the destination city was removed),
+     *  - internal Food/Production → delivered to the DESTINATION city (domestic routes only): Food into its
+     *    food store (speeds growth), Production into its current construction — mirrors Civ V's internal
+     *    trade routes (banked directly, NOT via CityStats),
      *  - religion pressure → the destination city's `religion.addPressure` toward the origin's majority
      *    religion (guarded by religion-enabled inside `addPressure`).
      */
@@ -200,6 +208,10 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
                 val destOwner = destCity.civ
                 if (yields.destOwnerGold != 0 && destOwner.civID != civ.civID)
                     destOwner.addGold(yields.destOwnerGold)
+                if (yields.destFood > 0)
+                    destCity.population.foodStored += yields.destFood
+                if (yields.destProduction > 0)
+                    destCity.cityConstructions.addProductionPoints(yields.destProduction)
                 if (yields.religionPressure > 0 && yields.originReligionName != null)
                     destCity.religion.addPressure(yields.originReligionName, yields.religionPressure)
             }

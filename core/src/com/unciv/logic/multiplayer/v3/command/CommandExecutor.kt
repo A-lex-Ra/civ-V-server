@@ -1431,7 +1431,15 @@ class CommandExecutor {
         if (!unit.hasMovement())
             throw CommandException("Unit at (${command.unitX}, ${command.unitY}) has no movement left to establish a trade route")
 
-        manager.establish(originCity, destCity, unit)
+        // A DOMESTIC route carries Food/Production (default Production if unspecified); an INTERNATIONAL one
+        // carries gold/science, so its internalYield is forced to None.
+        val internalYield = if (destCity.civ.civID != actingCiv.civID)
+            com.unciv.logic.trade.TradeRouteYield.None
+        else when (command.internalYield) {
+            com.unciv.logic.trade.TradeRouteYield.Food.name -> com.unciv.logic.trade.TradeRouteYield.Food
+            else -> com.unciv.logic.trade.TradeRouteYield.Production
+        }
+        manager.establish(originCity, destCity, unit, internalYield)
     }
 
     /**

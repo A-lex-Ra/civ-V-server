@@ -5,6 +5,7 @@ import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.trade.TradeRouteConnection
 import com.unciv.logic.trade.TradeRouteManager
 import com.unciv.logic.trade.TradeRouteType
+import com.unciv.logic.trade.TradeRouteYield
 import com.unciv.logic.trade.TradeRouteYields
 
 /**
@@ -36,8 +37,11 @@ object TradeUnitAutomation {
             // On an own city center: try to establish the best route from here.
             val best = bestDestinationFrom(manager, currentCity, type, maxLength, unit)
             if (best != null) {
-                if (manager.usedCapacity(civ.civID) < manager.getMaxCapacity(civ))
-                    manager.establish(currentCity, best, unit)
+                if (manager.usedCapacity(civ.civID) < manager.getMaxCapacity(civ)) {
+                    // Domestic routes carry Production by default; international ones carry gold/science.
+                    val yield = if (best.civ.civID == civ.civID) TradeRouteYield.Production else TradeRouteYield.None
+                    manager.establish(currentCity, best, unit, yield)
+                }
                 return
             }
             // Nothing reachable from here: if another of the civ's cities can reach a destination, relocate
