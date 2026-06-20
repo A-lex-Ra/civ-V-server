@@ -17,6 +17,7 @@ import com.unciv.network.game.GameFrame
 import com.unciv.network.relay.ClientToRelay
 import com.unciv.network.relay.RelayToClient
 import com.unciv.logic.multiplayer.v3.transport.RelayTransport
+import com.unciv.utils.Log
 
 /**
  * The **player side** of the multiplayer-v3 loop: glues a [RelayTransport] to a client-side view
@@ -129,6 +130,10 @@ class V3GameClient(
                 onView?.invoke(payload)
             }
             is GameFrame.CommandRejected -> {
+                // Surface the authority's rejection. Previously this was swallowed silently (onRejection
+                // is unset for a plain joiner and predictiveView is null), so a refused command just
+                // "reverted" on the next snapshot with no trace anywhere. Always log it.
+                Log.debug("V3GameClient: command REJECTED by authority (seq %s): %s", payload.seq, payload.reason)
                 lastRejection = payload
                 predictiveView?.onCommandRejected(payload.seq, payload.reason)
                 onRejection?.invoke(payload)

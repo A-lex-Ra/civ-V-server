@@ -140,6 +140,12 @@ class GameSession(
             // single round-resolution broadcast remains the only cross-player view update per round).
             if (changesActorView(frame.command)) sendSnapshotTo(frame.playerId, civId)
         } catch (e: CommandException) {
+            // Log every rejection on the authority — this is the one place that knows WHY a command was
+            // refused. Without it a rejected command was silently dropped (the issuer only saw its
+            // optimistic change "revert" on the next snapshot, with nothing in any log). Names the player,
+            // the acting civ, the command type and the reason.
+            Log.debug("v2 command REJECTED: player=%s civ=%s command=%s seq=%s reason=%s",
+                frame.playerId, civId, frame.command::class.simpleName, frame.seq, e.message)
             outbound(frame.playerId, GameFrame.CommandRejected(frame.seq, e.message ?: "Command rejected"))
         }
     }

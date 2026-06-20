@@ -239,11 +239,11 @@ object PlayerViewProjector {
     private fun redactOtherCivSecrets(projected: GameInfo, viewerId: String) {
         for (civ in projected.civilizations) {
             if (civ.civID == viewerId) continue
-            scrubCivSecrets(civ)
+            scrubCivSecrets(civ, viewerId)
         }
     }
 
-    private fun scrubCivSecrets(civ: Civilization) {
+    private fun scrubCivSecrets(civ: Civilization, viewerId: String) {
         // --- Treasury & stockpiled resources ---
         if (civ.gold != 0) civ.addGold(-civ.gold) // gold has a private setter; addGold is the public path
         civ.resourceStockpiles.clear()
@@ -308,7 +308,14 @@ object PlayerViewProjector {
             diplomacyManager.trades.clear()
             diplomacyManager.diplomaticModifiers.clear()
             diplomacyManager.flagsCountdown.clear()
-            diplomacyManager.influence = 0f
+            // PRESERVE this civ's influence toward the VIEWER. A city-state's influence with the viewing
+            // player is the player's own diplomatic standing — it drives the Ally/Friend relationship and
+            // the city-state's bonuses, and is legitimately visible. Only influence between THIRD parties
+            // is a secret. Without this guard every snapshot reset the player's city-state influence to 0,
+            // so a gift / tribute appeared to "revert" after each round resolved (see CityStateDiplomacyTable).
+            // NB: DiplomacyManager.otherCivName actually holds the other civ's civID (the diplomacy map is
+            // keyed by civID), so it is compared against viewerId (also a civID), not a display name.
+            if (diplomacyManager.otherCivName != viewerId) diplomacyManager.influence = 0f
             diplomacyManager.totalOfScienceDuringRA = 0
         }
 

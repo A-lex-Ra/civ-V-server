@@ -317,6 +317,40 @@ class PlayerViewProjectorTest {
         )
     }
 
+    @Test
+    fun cityStateInfluenceTowardViewerIsKeptButTowardThirdPartiesIsScrubbed() {
+        // A city-state's influence with the VIEWER is the viewer's own diplomatic standing (it drives
+        // the Ally/Friend relationship + the city-state's bonuses) — it must survive projection. Only
+        // the city-state's influence with THIRD parties is a secret. Regression for the bug where every
+        // snapshot reset the player's city-state influence to 0, so a gift / tribute "reverted" each round.
+        testGame.addUnit("Warrior", civA, centerTile)
+        val cityState = testGame.addCiv(cityStateType = "Cultured")
+        // The city-state has met both majors, so it holds a DiplomacyManager toward each.
+        civA.diplomacyFunctions.makeCivilizationsMeet(cityState)
+        civB.diplomacyFunctions.makeCivilizationsMeet(cityState)
+        cityState.getDiplomacyManager(civA)!!.setInfluenceWithoutSideEffects(60f)
+        cityState.getDiplomacyManager(civB)!!.setInfluenceWithoutSideEffects(80f)
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val csInView = projectedCiv(viewForA, cityState.civID)
+        // Read the raw influence field by reflection: projectFor deliberately skips the full
+        // GameInfo.setTransients(), so the public getInfluence() (which walks isAtWarWith -> nation
+        // transients) would NPE here, and the field is internal to :core.
+        fun influenceTowardId(towardId: String): Float {
+            val mgr = csInView.getDiplomacyManager(towardId)!!
+            return mgr.javaClass.getDeclaredField("influence").apply { isAccessible = true }.getFloat(mgr)
+        }
+
+        assertEquals(
+            "The city-state's influence toward the VIEWER must be preserved (player's own standing)",
+            60f, influenceTowardId(civA.civID), 0f
+        )
+        assertEquals(
+            "The city-state's influence toward a THIRD party must be scrubbed",
+            0f, influenceTowardId(civB.civID), 0f
+        )
+    }
+
     // endregion
 
     // region Priority 2 — seen enemy city interior

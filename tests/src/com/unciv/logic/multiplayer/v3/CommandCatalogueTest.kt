@@ -1182,4 +1182,82 @@ class CommandCatalogueTest {
     }
 
     // endregion
+
+    // region City-state gift & tribute
+
+    /** A met city-state with a capital on [capitalTile] (a capital is needed for tribute willingness). */
+    private fun addMetCityState(capitalTile: Tile): Civilization {
+        val cs = testGame.addCiv(cityStateType = "Cultured")
+        testGame.addCity(cs, capitalTile)
+        civInfo.diplomacyFunctions.makeCivilizationsMeet(cs)
+        return cs
+    }
+
+    @Test
+    fun giftGoldDeductsGoldAndRaisesInfluence() {
+        val cs = addMetCityState(testGame.tileMap[2, 0])
+        civInfo.addGold(1000)
+        val goldBefore = civInfo.gold
+        val influenceBefore = cs.getDiplomacyManager(civInfo)!!.getInfluence()
+
+        executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.GiftGold(cs.civName, 500))
+
+        assertEquals("Gift must deduct the donor's gold", goldBefore - 500, civInfo.gold)
+        assertTrue("Gift must raise the city-state's influence toward the donor",
+            cs.getDiplomacyManager(civInfo)!!.getInfluence() > influenceBefore)
+    }
+
+    @Test
+    fun tributeGoldGrantsGoldWhenCityStateIsWilling() {
+        val csCapitalTile = testGame.tileMap[2, 0]
+        val cs = addMetCityState(csCapitalTile)
+        // Surround the city-state capital with overwhelming military so its gold tribute willingness is
+        // non-negative — the same gate the "Take gold" button uses to enable itself.
+        for (neighbor in csCapitalTile.neighbors.filter { it.isLand })
+            testGame.addUnit("Warrior", civInfo, neighbor)
+        assertTrue("Precondition: the city-state must be willing to pay gold tribute",
+            cs.cityStateFunctions.getTributeWillingness(civInfo, demandingWorker = false) >= 0)
+        val goldBefore = civInfo.gold
+
+        executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.TributeGold(cs.civName))
+
+        assertTrue("Demanding gold tribute must grant the demander gold", civInfo.gold > goldBefore)
+    }
+
+    @Test
+    fun tributeGoldRejectedWhenCityStateUnwillingAndStateUnchanged() {
+        // Deeply negative influence (< -30) drives tribute willingness negative -> the demand is refused.
+        val cs = addMetCityState(testGame.tileMap[2, 0])
+        cs.getDiplomacyManager(civInfo)!!.setInfluenceWithoutSideEffects(-40f)
+        assertTrue("Precondition: a hostile (very-low-influence) city-state must be unwilling",
+            cs.cityStateFunctions.getTributeWillingness(civInfo, demandingWorker = false) < 0)
+        val goldBefore = civInfo.gold
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.TributeGold(cs.civName))
+        }
+        assertEquals("A rejected tribute must not change the demander's gold", goldBefore, civInfo.gold)
+    }
+
+    @Test
+    fun tributeOnNonCityStateIsRejected() {
+        // enemyCiv is a major civ, not a city-state.
+        civInfo.diplomacyFunctions.makeCivilizationsMeet(enemyCiv)
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.TributeGold(enemyCiv.civName))
+        }
+    }
+
+    @Test
+    fun tributeCommandsRoundTripThroughKotlinx() {
+        for (command in listOf<GameCommand>(GameCommand.TributeGold("Brussels"), GameCommand.TributeWorker("Brussels"))) {
+            val decoded = com.unciv.network.serialization.relayJson.decodeFromString(
+                GameCommand.serializer(),
+                com.unciv.network.serialization.relayJson.encodeToString(GameCommand.serializer(), command)
+            )
+            assertEquals(command, decoded)
+        }
+    }
+
+    // endregion
 }
