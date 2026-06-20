@@ -21,6 +21,7 @@ class TileLayerUnitFlag(tileGroup: TileGroup, size: Float) : TileLayer(tileGroup
     private var noIcons = true
     private var civilianUnitIcon: UnitIconGroup? = null
     private var militaryUnitIcon: UnitIconGroup? = null
+    private var tradeUnitIcon: UnitIconGroup? = null
 
     init {
         touchable = Touchable.disabled
@@ -42,6 +43,7 @@ class TileLayerUnitFlag(tileGroup: TileGroup, size: Float) : TileLayer(tileGroup
     private fun clearSlots() {
         civilianUnitIcon?.remove()
         militaryUnitIcon?.remove()
+        tradeUnitIcon?.remove()
     }
 
     private fun showMilitaryUnit(viewingCiv: Civilization) = tileGroup.isForceVisible
@@ -55,6 +57,11 @@ class TileLayerUnitFlag(tileGroup: TileGroup, size: Float) : TileLayer(tileGroup
         } else if (slot == 1) {
             icon.center(this)
             icon.y += 20f
+        } else if (slot == 2) {
+            // BNW ITR third slot - trade unit (Caravan / Cargo Ship). Offset to the right so it
+            // doesn't overlap a civilian/military unit sharing the same tile.
+            icon.center(this)
+            icon.x += 20f
         }
     }
 
@@ -123,12 +130,15 @@ class TileLayerUnitFlag(tileGroup: TileGroup, size: Float) : TileLayer(tileGroup
             return civilianUnitIcon
         else if (militaryUnitIcon?.unit == unit)
             return militaryUnitIcon
+        else if (tradeUnitIcon?.unit == unit)
+            return tradeUnitIcon
         return null
     }
 
     private fun highlightRed() {
         civilianUnitIcon?.highlightRed()
         militaryUnitIcon?.highlightRed()
+        tradeUnitIcon?.highlightRed()
     }
 
     private fun fillSlots(viewingCiv: Civilization?) {
@@ -142,7 +152,10 @@ class TileLayerUnitFlag(tileGroup: TileGroup, size: Float) : TileLayer(tileGroup
 
         civilianUnitIcon = newUnitIcon(0, tileGroup.tile.civilianUnit, isCivilianShown, viewingCiv)
         militaryUnitIcon = newUnitIcon(1, tileGroup.tile.militaryUnit, isMilitaryShown, viewingCiv)
-        noIcons = civilianUnitIcon == null && militaryUnitIcon == null
+        // BNW ITR - a trade unit (Caravan / Cargo Ship) lives in its own tile slot; show its flag
+        // alongside any civilian/military unit (gated like a civilian, since it is a civilian by type).
+        tradeUnitIcon = newUnitIcon(2, tileGroup.tile.tradeUnit, isCivilianShown, viewingCiv)
+        noIcons = civilianUnitIcon == null && militaryUnitIcon == null && tradeUnitIcon == null
     }
 
     override fun doUpdate(viewingCiv: Civilization?) {

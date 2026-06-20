@@ -369,6 +369,49 @@ class PlayerViewProjectorTest {
         assertTrue("City resource stockpiles must be stripped", cityInView.resourceStockpiles.isEmpty())
     }
 
+    @Test
+    fun unseenRivalCityRevealsOnlyTileOwnerOnExploredBorderTiles() {
+        // B founds a city on a tile A never explores -> the CITY itself must stay hidden (removed from
+        // A's view). But A HAS explored one of that city's border tiles, so A is entitled to know whose
+        // tile it is (Civ V faithful: "you may not have seen the city, but you know the civ name and
+        // colour when you see their tile"). The projector stamps Tile.viewOnlyOwnerCivName on that tile
+        // (and its explored fringe) so the client can still draw B's cultural border — while deep,
+        // never-approached interior tiles stay unowned so the hidden city's full shape does not leak.
+        testGame.addUnit("Warrior", civA, centerTile)
+        val cityB: City = testGame.addCity(civB, testGame.tileMap[5, 0])
+
+        testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
+        val ownedNonCenter = cityB.getTiles().filter { it != cityB.getCenterTile() }.toList()
+        val exploredBorder = ownedNonCenter.first()
+        exploredBorder.setExplored(civA, true)
+        // An owned tile A has neither explored nor borders an explored tile of -> must NOT leak an owner.
+        val deepTile = ownedNonCenter
+            .filter { it != exploredBorder && exploredBorder !in it.neighbors }
+            .maxByOrNull { it.aerialDistanceTo(exploredBorder) }!!
+
+        testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
+        assertFalse("Precondition: B's city center must be unexplored by A", cityB.getCenterTile().isExplored(civA))
+        assertTrue("Precondition: A must have explored the chosen border tile", exploredBorder.isExplored(civA))
+        assertFalse("Precondition: the deep interior tile must be unexplored by A", deepTile.isExplored(civA))
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+
+        assertTrue(
+            "An unseen rival city must be removed from A's view (the city itself stays hidden)",
+            projectedCiv(viewForA, civB.civID).cities.isEmpty()
+        )
+        assertEquals(
+            "An explored border tile of a hidden city must reveal ONLY its owner id for border rendering",
+            civB.civID,
+            viewForA.tileMap[exploredBorder.position.x, exploredBorder.position.y].viewOnlyOwnerCivName
+        )
+        assertEquals(
+            "A never-approached interior tile of a hidden city must stay unowned (no territory-shape leak)",
+            "",
+            viewForA.tileMap[deepTile.position.x, deepTile.position.y].viewOnlyOwnerCivName
+        )
+    }
+
     // endregion
 
     // region Priority 3 — unexplored tile contents

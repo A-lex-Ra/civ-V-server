@@ -227,23 +227,27 @@ class UnitTable(val worldScreen: WorldScreen) : Table() {
         // 2. Military
         // 3. GP + Settlers
         // 4. Other civilian (Workers)
-        // 5. None (Deselect)
+        // 5. Trade unit (Caravan / Cargo Ship) — BNW ITR, its own tile slot
+        // 6. None (Deselect)
 
-        val civUnit = selectedTile.civilianUnit
-        val milUnit = selectedTile.militaryUnit
         val curUnit = selectedUnit
 
-        val nextUnit: MapUnit?
-        val priorityUnit = when {
-            milUnit != null && milUnit.isEligible() -> milUnit
-            civUnit != null && civUnit.isEligible() -> civUnit
-            else -> null
-        }
+        // The tile's selectable slots in cycle order. A trade unit lives in its own slot, so it must
+        // take part in the click-cycle just like the civilian/military slots — otherwise it could only
+        // be picked from the floating unit-icon overlay.
+        val orderedSlots = listOfNotNull(
+            selectedTile.militaryUnit,
+            selectedTile.civilianUnit,
+            selectedTile.tradeUnit
+        )
+        val priorityUnit = orderedSlots.firstOrNull { it.isEligible() }
 
-        nextUnit = when {
+        // Clicking the same tile again advances to the next eligible slot after the current one, and
+        // wraps round to "none" (deselect) after the last — same behaviour the two original slots had.
+        val nextUnit: MapUnit? = when {
             curUnit == null -> priorityUnit
-            curUnit == civUnit && milUnit != null && milUnit.isEligible() -> null
-            curUnit == milUnit && civUnit != null && civUnit.isEligible() -> civUnit
+            curUnit in orderedSlots ->
+                orderedSlots.drop(orderedSlots.indexOf(curUnit) + 1).firstOrNull { it.isEligible() }
             else -> priorityUnit
         }
 

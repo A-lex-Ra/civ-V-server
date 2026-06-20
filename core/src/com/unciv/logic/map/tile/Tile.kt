@@ -89,6 +89,16 @@ class Tile : IsPartOfGameInfoSerialization {
 
     @Transient private var roadOwnerObject: Civilization? = null
 
+    /** v3 view-only: when the authority's `PlayerViewProjector` hides a city the viewer has never
+     * seen, it stamps the owning civ's id here on tiles the viewer HAS explored (or that border an
+     * explored tile), so the client can still draw that civ's cultural border + know its name/colour
+     * without learning the city itself ("you may not have seen the city, but you know whose tile this
+     * is" — Civ V faithful). Always "" on the canonical game and in single-player; [getOwner] only
+     * falls back to it when there is no [owningCity]. */
+    var viewOnlyOwnerCivName: String = ""
+
+    @Transient private var viewOnlyOwnerObject: Civilization? = null
+
     var hasBottomRightRiver = false
     var hasBottomRiver = false
     var hasBottomLeftRiver = false
@@ -252,6 +262,7 @@ class Tile : IsPartOfGameInfoSerialization {
         toReturn.roadStatus = roadStatus
         toReturn.roadIsPillaged = roadIsPillaged
         toReturn.roadOwner = roadOwner
+        toReturn.viewOnlyOwnerCivName = viewOnlyOwnerCivName
         toReturn.hasBottomLeftRiver = hasBottomLeftRiver
         toReturn.hasBottomRightRiver = hasBottomRightRiver
         toReturn.hasBottomRiver = hasBottomRiver
@@ -402,7 +413,7 @@ class Tile : IsPartOfGameInfoSerialization {
 
     @Readonly fun getBaseTerrain(): Terrain = baseTerrainObject
 
-    @Readonly fun getOwner(): Civilization? = getCity()?.civ
+    @Readonly fun getOwner(): Civilization? = getCity()?.civ ?: viewOnlyOwnerObject
 
     @Readonly
     fun getRoadOwner(): Civilization? {
@@ -886,6 +897,12 @@ class Tile : IsPartOfGameInfoSerialization {
                 roadOwnerObject = tileMap.gameInfo.getCivilization(roadOwner)
             getRoadOwner()!!.neutralRoads.add(this.position)
         }
+
+        // v3 view-only border owner (see [viewOnlyOwnerCivName]): resolve the civ for a tile whose
+        // real owning city was redacted out of this client's view. Mirrors the roadOwner resolution
+        // above — runs while owningCity is still null (it is assigned later in civ.setTransients).
+        if (owningCity == null && viewOnlyOwnerCivName != "" && tileMap.hasGameInfo())
+            viewOnlyOwnerObject = tileMap.gameInfo.getCivilizationOrNull(viewOnlyOwnerCivName)
     }
 
     fun setOwningCity(city: City?) {

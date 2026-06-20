@@ -19,16 +19,21 @@ class TileLayerUnitSprite(tileGroup: TileGroup, size: Float) : TileLayer(tileGro
     override fun act(delta: Float) {}
     override fun hit(x: Float, y: Float, touchable: Boolean): Actor? = null
     override fun draw(batch: Batch?, parentAlpha: Float) {
-        if (civilianSlot == null && militarySlot == null) return
+        if (civilianSlot == null && militarySlot == null && tradeSlot == null) return
         super.draw(batch, parentAlpha)
     }
-    
+
     // Slots are only filled if units exist, and images for those units exist
     private var civilianSlot: UnitSpriteSlot? = null
     private var militarySlot: UnitSpriteSlot? = null
+    private var tradeSlot: UnitSpriteSlot? = null
 
 
-    fun getSpriteSlot(unit:MapUnit) = if (unit.isCivilian()) civilianSlot else militarySlot
+    fun getSpriteSlot(unit:MapUnit) = when {
+        unit.isTradeUnit() -> tradeSlot       // BNW ITR - trade units have their own tile slot
+        unit.isCivilian() -> civilianSlot
+        else -> militarySlot
+    }
 
     private fun showMilitaryUnit(viewingCiv: Civilization) = tileGroup.isForceVisible
             || viewingCiv.viewableInvisibleUnitsTiles.contains(tileGroup.tile)
@@ -86,16 +91,19 @@ class TileLayerUnitSprite(tileGroup: TileGroup, size: Float) : TileLayer(tileGro
 
         civilianSlot = updateSlot(civilianSlot, tileGroup.tile.civilianUnit, isShown = isCivilianSlotShown)
         militarySlot = updateSlot(militarySlot, tileGroup.tile.militaryUnit, isShown = isMilitarySlotShown)
+        tradeSlot = updateSlot(tradeSlot, tileGroup.tile.tradeUnit, isShown = isCivilianSlotShown)
     }
 
     override fun determineVisibility() {
-        isVisible = civilianSlot != null || militarySlot != null
+        isVisible = civilianSlot != null || militarySlot != null || tradeSlot != null
     }
 
     fun reset() {
         civilianSlot?.spriteGroup?.remove()
         militarySlot?.spriteGroup?.remove()
+        tradeSlot?.spriteGroup?.remove()
         civilianSlot = null
         militarySlot = null
+        tradeSlot = null
     }
 }

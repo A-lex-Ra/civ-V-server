@@ -116,8 +116,8 @@ class CityButton(val city: City, private val tileGroup: TileGroup) : Table(BaseS
 
         if (!isCityViewable) return
 
-        // detect civilian in the city center
-        if (!isButtonMoved && (tileGroup.tile.civilianUnit != null))
+        // detect civilian (or a BNW trade unit) in the city center
+        if (!isButtonMoved && (tileGroup.tile.civilianUnit != null || tileGroup.tile.tradeUnit != null))
             insertHiddenUnitMarker(HiddenUnitMarkerPosition.Center)
 
         for (tile in tileGroup.tile.neighbors) {
@@ -125,14 +125,14 @@ class CityButton(val city: City, private val tileGroup: TileGroup) : Table(BaseS
 
             if (isButtonMoved) {
                 when {
-                    // detect civilian left-below the city
-                    (tile.civilianUnit != null) && direction.x == 0 && direction.eq(0, 1) ->
+                    // detect civilian (or trade unit) left-below the city
+                    (tile.civilianUnit != null || tile.tradeUnit != null) && direction.x == 0 && direction.eq(0, 1) ->
                         insertHiddenUnitMarker(HiddenUnitMarkerPosition.Left)
                     // detect military under the city
                     (tile.militaryUnit != null && !tile.hasEnemyInvisibleUnit(viewingPlayer)) && direction.eq(1, 1) ->
                         insertHiddenUnitMarker(HiddenUnitMarkerPosition.Center)
-                    // detect civilian right-below the city
-                    (tile.civilianUnit != null) && direction.eq(1, 0) ->
+                    // detect civilian (or trade unit) right-below the city
+                    (tile.civilianUnit != null || tile.tradeUnit != null) && direction.eq(1, 0) ->
                         insertHiddenUnitMarker(HiddenUnitMarkerPosition.Right)
                 }
             } else if (tile.militaryUnit != null && !tile.hasEnemyInvisibleUnit(viewingPlayer)) {

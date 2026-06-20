@@ -176,7 +176,7 @@ object PlayerViewProjector {
             }
             if (hiddenCities.isEmpty()) continue
 
-            for (city in hiddenCities) detachCityFromTiles(city, projected)
+            for (city in hiddenCities) detachCityFromTiles(city, civ.civID, projected, visibility)
             civ.cities = civ.cities.filter { it !in hiddenCities }
         }
     }
@@ -498,12 +498,27 @@ object PlayerViewProjector {
         encampments.removeAll { encampment -> encampment.position !in visibility.visiblePositions }
     }
 
-    /** Best-effort: clear the city pointer off tiles that referenced it, so the redacted clone has
-     *  no dangling city reference on the map the viewer can see. */
-    private fun detachCityFromTiles(city: City, projected: GameInfo) {
+    /**
+     * Clear the city pointer off tiles that referenced it (so the redacted clone has no dangling city
+     * reference), AND — for the tiles the viewer is *entitled* to see the border of — stamp the owning
+     * civ's id into [Tile.viewOnlyOwnerCivName].
+     *
+     * Civ V faithful (the player's own words): *"you may not have seen the city, but you know the civ
+     * name and colour when you see their tile — and adjacent fog-of-war tiles, same logic."* So a tile
+     * this viewer has explored (incl. currently visible), or that borders an explored tile, reveals
+     * ONLY its owner's identity — enough for the client to draw the cultural border + tile owner — while
+     * the city itself stays hidden. Deep-interior tiles the viewer has never approached stay unowned, so
+     * the hidden city's full territory shape does not leak.
+     *
+     * [ownerCivId] is passed in rather than read from `city.civ`: the clone skips `City.setTransients()`,
+     * so the cloned city's transient `civ` back-reference is not wired up here.
+     */
+    private fun detachCityFromTiles(city: City, ownerCivId: String, projected: GameInfo, visibility: VisibilitySnapshot) {
         for (position in city.tiles) {
             val tile = projected.tileMap.getOrNull(position.x, position.y) ?: continue
             if (tile.owningCity == city) tile.setOwningCity(null)
+            if (visibility.hasExplored(tile) || tile.neighbors.any { visibility.hasExplored(it) })
+                tile.viewOnlyOwnerCivName = ownerCivId
         }
     }
 }
