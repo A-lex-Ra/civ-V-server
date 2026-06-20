@@ -98,9 +98,9 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
      * The path length in tiles between [originCity] and [destCity] for a route of the given [type], or
      * `null` if no route of that type exists. Uses [com.unciv.logic.map.BFS] from the origin city's center
      * tile (we never hand-roll the traversal) with a type-specific passability predicate:
-     *  - [TradeRouteType.Land]: the tile is land AND enterable by the owner's diplomacy (own/open-borders
-     *    territory), reusing the [com.unciv.logic.civilization.transients.CapitalConnectionsFinder]
-     *    `canEnterBordersOf` shape. City centers are always passable.
+     *  - [TradeRouteType.Land]: the tile is land AND the owner is not at war with us ([canTradeRouteEnter]) —
+     *    Civ V land trade routes cross neutral/own/city-state/foreign territory WITHOUT open borders; only
+     *    war (and barbarians) blocks the path. City centers are always passable.
      *  - [TradeRouteType.Sea]: the tile is water OR a city center.
      *
      * Length is the number of tiles on the path returned by [BFS.getPathTo] (includes both endpoints).
@@ -111,12 +111,14 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
         val ownerCiv = originCity.civ
 
         // A city center is always passable (a route may terminate at, or pass through, a city —
-        // including a foreign destination you want to trade with, even without open borders). Crossing
-        // non-city LAND requires the owner's diplomacy (own / neutral / open-borders / friendly CS),
-        // reusing the CapitalConnectionsFinder.canEnterBordersOf shape. Sea routes hop water + cities.
+        // including a foreign destination you want to trade with). Crossing non-city LAND follows the Civ V
+        // rule: a trade unit traverses ANY territory it is not at war with — neutral, own, city-state, or
+        // another major civ — WITHOUT needing open borders ([canTradeRouteEnter]). Sea routes hop water +
+        // cities. (This is NOT the road-based capital connection, which DOES require open borders — see the
+        // class header; the two "trade route" mechanics are distinct.)
         val bfs = when (type) {
             TradeRouteType.Land -> BFS(originTile) { tile ->
-                tile.isCityCenter() || (tile.isLand && canEnterBordersOf(ownerCiv, tile))
+                tile.isCityCenter() || (tile.isLand && canTradeRouteEnter(ownerCiv, tile))
             }
             TradeRouteType.Sea -> BFS(originTile) { tile ->
                 tile.isWater || tile.isCityCenter()
@@ -127,15 +129,21 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
         return bfs.getPathTo(destTile).count()
     }
 
-    /** The diplomatic-passability shape of [CapitalConnectionsFinder.canEnterBordersOf]. */
+    /**
+     * Civ V land-trade-route passability for a single tile. A trade unit (Caravan) crosses ANY territory
+     * whose owner it is **not at war with** — neutral, its own, a city-state, or another major civ — and
+     * does **NOT** need open borders to do so. Only war (and barbarian territory) blocks the path; route
+     * range is enforced separately by the caller. This is deliberately *unlike*
+     * [com.unciv.logic.civilization.transients.CapitalConnectionsFinder.canEnterBordersOf] (the road→capital
+     * connection), which does require open borders — the two "trade route" mechanics are distinct (class header).
+     * https://civilization.fandom.com/wiki/International_trade_route_(Civ5)
+     */
     @Readonly
-    private fun canEnterBordersOf(civInfo: Civilization, tile: com.unciv.logic.map.tile.Tile): Boolean {
-        val owner = tile.getOwner() ?: return true // neutral land is enterable
+    private fun canTradeRouteEnter(civInfo: Civilization, tile: com.unciv.logic.map.tile.Tile): Boolean {
+        val owner = tile.getOwner() ?: return true // neutral land is always enterable
         if (owner == civInfo) return true
         if (owner.isBarbarian || civInfo.isBarbarian) return false
-        val diplomacyManager = civInfo.getDiplomacyManager(owner) ?: return false // not met yet
-        if (owner.isCityState && !civInfo.isAtWarWith(owner)) return true
-        return diplomacyManager.hasOpenBorders
+        return !civInfo.isAtWarWith(owner) // foreign territory is crossable unless at war — no open borders needed
     }
 
     //endregion

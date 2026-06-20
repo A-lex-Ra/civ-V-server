@@ -38,9 +38,12 @@ class TradeRouteManagerTest {
 
     @Before
     fun setUp() {
-        // Founding a city makes civs meet -> a tutorial task -> settings.save() -> needs UncivGame.files.
-        UncivGame.Current.files = UncivFiles(Gdx.files)
+        // TestGame()'s ctor sets UncivGame.Current, so it MUST come first — otherwise this class fails in
+        // isolation (running before any other TestGame-constructing class has initialized Current).
         testGame = TestGame()
+        // Founding a city (in the tests below) makes civs meet -> a tutorial task -> settings.save() ->
+        // needs UncivGame.files; set after Current exists but before any addCity call.
+        UncivGame.Current.files = UncivFiles(Gdx.files)
         testGame.makeHexagonalMap(5)
         testGame.gameInfo.turns = 1
         civ = testGame.addCiv(isPlayer = true)
@@ -111,6 +114,34 @@ class TradeRouteManagerTest {
         // All tiles are land -> no SEA route between inland cities.
         val seaLength = manager.computeRoute(capital, other, TradeRouteType.Sea)
         assertNull("A sea route must NOT exist across all-land terrain", seaLength)
+    }
+
+    @Test
+    fun `computeRoute crosses a foreign civ's territory WITHOUT open borders (Civ V faithful)`() {
+        // origin is ours; the destination city (and the ring of tiles the route must step through to reach
+        // it) belongs to another MAJOR civ we are at PEACE with but have NO open borders with. In Civ V a
+        // land trade route still crosses it — open borders are NOT required, only war blocks a route.
+        val origin = testGame.addCity(civ, testGame.getTile(0, 0))
+        val foreign = testGame.addCiv()
+        val dest = testGame.addCity(foreign, testGame.getTile(3, 0))
+        if (!civ.knows(foreign)) civ.diplomacyFunctions.makeCivilizationsMeet(foreign)
+        civ.getDiplomacyManager(foreign)!!.makePeace()
+        civ.getDiplomacyManager(foreign)!!.hasOpenBorders = false
+
+        val length = manager.computeRoute(origin, dest, TradeRouteType.Land)
+        assertNotNull("A land route must cross foreign territory WITHOUT open borders (Civ V)", length)
+    }
+
+    @Test
+    fun `computeRoute is blocked through enemy territory when at war`() {
+        val origin = testGame.addCity(civ, testGame.getTile(0, 0))
+        val foreign = testGame.addCiv()
+        val dest = testGame.addCity(foreign, testGame.getTile(3, 0))
+        if (!civ.knows(foreign)) civ.diplomacyFunctions.makeCivilizationsMeet(foreign)
+        civ.getDiplomacyManager(foreign)!!.declareWar()
+
+        val length = manager.computeRoute(origin, dest, TradeRouteType.Land)
+        assertNull("War blocks the trade route's path through enemy territory", length)
     }
 
     // endregion
