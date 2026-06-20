@@ -2,7 +2,7 @@
 
 Design context: `docs/brave-new-world-adoption.md` §1 (Tier C), §4 (Tier C: *International Trade Routes (yields)* + *Venice double-trade-routes*), §5.3 (new GameInfo state + `GameCommand.EstablishTradeRoute` + projection + AI), and the appendix (`StatsFromTradeRoute`/`ConnectTradeRoutes` uniques, the `Trade Route` stockpile token, Caravan/Cargo Ship units). Implementation contract, split into independently-committable increments, modeled on `docs/bnw-ideology-plan.md`.
 
-**Top note:** subagents do **NOT** run Gradle and do **NOT** commit. The orchestrator runs the single build+test and commits each increment.
+**Top note:** run a single consolidated build+test and commit each increment (don't build/commit per micro-step).
 
 Baseline already shipped (verified):
 - Caravan (land) and Cargo Ship (sea) units exist in `android/assets/jsons/Civ V - Brave New World/Units.json`, gated `Costs [1] [Trade Route]` / `Only available <with [Trade Route]>`, with a `// TODO: Establish Trade Route` marker. They currently only do the City-State *trade mission* (`ConductTradeMission`).

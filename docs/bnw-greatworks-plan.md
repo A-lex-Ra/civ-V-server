@@ -2,7 +2,7 @@
 
 Design context: `docs/brave-new-world-adoption.md` §3.2 (slot/theming/stockpile fakery), §3.5 (Great People create works via triggers), §4 Tier B row **Great Works**, §5.3 (v3 treatment). Implementation contract, split into independently-committable increments, structured to match `docs/bnw-ideology-plan.md`.
 
-> **Top note:** subagents do NOT run Gradle and do NOT commit. The orchestrator runs the single build + `:tests:test` and commits each increment. Each increment is self-contained and compiles/tests green on its own.
+> **Top note:** run a single consolidated build + `:tests:test` and commit each increment. Each increment is self-contained and compiles/tests green on its own.
 
 Baseline today: Great Works are **stockpiled resources** (`Great Work of Art/Writing/Music`, `Artifact` in the bundled `TileResources.json`); banked by `Instantly provides [1] [Great Work of …] <by consuming this unit>` on Great Artist/Writer/Musician units (`Civ V - Brave New World/Units.json`) and `Instantly provides [1] [Artifact]` from archaeology Dig events. "Slots" are ~60 hidden auto-built sub-buildings per work-type that `Instantly consumes [1] [Great Work of …]` and `Provides [2] [Tourism]`; "Theming Bonus" is another hidden building gated `Only available <in cities with a [<wonder> Slot N]>`. The engine has **no** native notion of a building slot or a per-city object store (`Building.kt` has only `specialistSlots: Counter<String>`; `City`/`CityConstructions` store only `builtBuildings`/queues; `OneTimeProvideResources` in `UniqueTriggerActivation.kt` only adds to `resourceStockpiles`).
 

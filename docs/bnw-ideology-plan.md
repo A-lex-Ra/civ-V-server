@@ -1,8 +1,8 @@
 # BNW Phase 2a — Ideologies: data-approximation → Civ-V-faithful (agent spec)
 
 Design context: `docs/brave-new-world-adoption.md` §3.3, §4 (Tier B Ideologies), §5.3. This file is the
-implementation contract, split into independently-committable increments. The orchestrator builds+tests+commits
-each increment; **subagents do NOT run Gradle and do NOT commit.**
+implementation contract, split into independently-committable increments. Run a single consolidated
+build+test and commit each increment.
 
 Baseline already shipped: tenet *adoption* works via `GameCommand.AdoptPolicy`; ideology *selection* + free-tenet
 events work for v3 joiners via `GameCommand.ResolveEvent`. Ideologies today are pure data (Order/Freedom/Autocracy
@@ -57,7 +57,7 @@ scrubbed there; empty/zero is a valid deserializable state). The viewer's OWN op
   `getHappinessBreakdown()` has the key with the right sign and `getHappiness()` drops; clone round-trip keeps state.
 - Extend the v3 projector test: project for civ A → civ B's `publicOpinion` cleared, A's intact.
 
-**Verify-by-outcome (orchestrator does this, not the agent):** full `:tests:test` green + the new tests pass.
+**Verify-by-outcome:** full `:tests:test` green + the new tests pass.
 
 ---
 
