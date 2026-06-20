@@ -448,6 +448,13 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
 
         val demandGoldButton = "Take [${otherCiv.cityStateFunctions.goldGainedByTribute()}] gold (-15 Influence)".toTextButton()
         demandGoldButton.onClick {
+            // multiplayer-v3: send the intent before the local mutation, then FALL THROUGH.
+            val v2 = com.unciv.UncivGame.Current.v3GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.TributeGold(
+                    cityStateCivName = otherCiv.civName
+                ))
+            }
             otherCiv.cityStateFunctions.tributeGold(viewingCiv)
             diplomacyScreen.rightSideTable.clear()
             diplomacyScreen.rightSideTable.add(ScrollPane(getCityStateDiplomacyTable(otherCiv)))
@@ -457,6 +464,13 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
 
         val demandWorkerButton = "Take worker (-50 Influence)".toTextButton()
         demandWorkerButton.onClick {
+            // multiplayer-v3: send the intent before the local mutation, then FALL THROUGH.
+            val v2 = com.unciv.UncivGame.Current.v3GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.TributeWorker(
+                    cityStateCivName = otherCiv.civName
+                ))
+            }
             otherCiv.cityStateFunctions.tributeWorker(viewingCiv)
             diplomacyScreen.rightSideTable.clear()
             diplomacyScreen.rightSideTable.add(ScrollPane(getCityStateDiplomacyTable(otherCiv)))

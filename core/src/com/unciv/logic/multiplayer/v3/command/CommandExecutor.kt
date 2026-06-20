@@ -96,6 +96,8 @@ class CommandExecutor {
             is GameCommand.GiftGold -> executeGiftGold(gameInfo, playerCivId, command)
             is GameCommand.DemandResponse -> executeDemandResponse(gameInfo, playerCivId, command)
             is GameCommand.CityStateProtection -> executeCityStateProtection(gameInfo, playerCivId, command)
+            is GameCommand.TributeGold -> executeTributeGold(gameInfo, playerCivId, command)
+            is GameCommand.TributeWorker -> executeTributeWorker(gameInfo, playerCivId, command)
             is GameCommand.RespondToTrade -> executeRespondToTrade(gameInfo, playerCivId, command)
             is GameCommand.AdoptPolicy -> executeAdoptPolicy(gameInfo, playerCivId, command)
             is GameCommand.SwitchIdeology -> executeSwitchIdeology(gameInfo, playerCivId, command)
@@ -624,6 +626,45 @@ class CommandExecutor {
                 throw CommandException("'$playerCivId' cannot withdraw protection over '${command.cityStateCivName}' right now")
             cityState.cityStateFunctions.removeProtectorCiv(actingCiv)
         }
+    }
+
+    private fun executeTributeGold(gameInfo: GameInfo, playerCivId: String, command: GameCommand.TributeGold) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val cityState = requireOtherCiv(gameInfo, actingCiv, command.cityStateCivName)
+
+        if (!cityState.isCityState)
+            throw CommandException("'${command.cityStateCivName}' is not a city-state")
+        if (actingCiv.getDiplomacyManager(cityState) == null)
+            throw CommandException("'$playerCivId' has not met '${command.cityStateCivName}'")
+        // The "Demand Tribute" path is hidden while at war with the city-state (DiplomacyScreen gate).
+        if (actingCiv.isAtWarWith(cityState))
+            throw CommandException("'$playerCivId' is at war with '${command.cityStateCivName}' and cannot demand tribute")
+        // Same gate the "Take [n] gold" button enforces: gold tribute willingness must be >= 0.
+        if (cityState.cityStateFunctions.getTributeWillingness(actingCiv, demandingWorker = false) < 0)
+            throw CommandException("'${command.cityStateCivName}' is not willing to pay gold tribute to '$playerCivId'")
+
+        // Delegate to the engine (pays gold, -15 influence, sets the recently-bullied flag).
+        cityState.cityStateFunctions.tributeGold(actingCiv)
+    }
+
+    private fun executeTributeWorker(gameInfo: GameInfo, playerCivId: String, command: GameCommand.TributeWorker) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val cityState = requireOtherCiv(gameInfo, actingCiv, command.cityStateCivName)
+
+        if (!cityState.isCityState)
+            throw CommandException("'${command.cityStateCivName}' is not a city-state")
+        if (actingCiv.getDiplomacyManager(cityState) == null)
+            throw CommandException("'$playerCivId' has not met '${command.cityStateCivName}'")
+        if (actingCiv.isAtWarWith(cityState))
+            throw CommandException("'$playerCivId' is at war with '${command.cityStateCivName}' and cannot demand tribute")
+        // Same gate the "Take worker" button enforces: worker tribute willingness must be >= 0 (this
+        // already folds in the "capital size >= 4" requirement via getTributeModifiers).
+        if (cityState.cityStateFunctions.getTributeWillingness(actingCiv, demandingWorker = true) < 0)
+            throw CommandException("'${command.cityStateCivName}' is not willing to give a worker to '$playerCivId'")
+
+        // Delegate to the engine (spawns a worker near the CS capital, -50 influence, recently-bullied
+        // flag). The unit choice + placement are deterministic (state-based RNG), so clients converge.
+        cityState.cityStateFunctions.tributeWorker(actingCiv)
     }
 
     // endregion

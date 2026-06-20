@@ -198,6 +198,8 @@ addressed by **acting-civ + tile coordinates** (no raw ids on the wire), except 
 | `giftGold` | `GiftGold` | `targetCivName`, `gold` (city-state gift) |
 | `demandResponse` | `DemandResponse` | `targetCivName`, `demandName`, `agree` |
 | `cityStateProtection` | `CityStateProtection` | `cityStateCivName`, `pledge` |
+| `tributeGold` | `TributeGold` | `cityStateCivName` (bully a city-state for gold; amount derived on authority) |
+| `tributeWorker` | `TributeWorker` | `cityStateCivName` (bully a city-state for a worker; unit chosen deterministically) |
 | `respondToTrade` | `RespondToTrade` | `fromCivName`, `accept` (accept/decline a pending request) |
 
 ### Espionage

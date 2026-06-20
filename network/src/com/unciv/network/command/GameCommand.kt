@@ -234,6 +234,42 @@ sealed interface GameCommand {
         val pledge: Boolean
     ) : GameCommand
 
+    /**
+     * The acting (major) civ demands gold tribute from the city-state [cityStateCivName] —
+     * "bullying" it for an instant gold payout at the cost of −15 influence.
+     *
+     * Mirrors the DiplomacyScreen city-state "Take [n] gold" button. The authority validates the
+     * same gate the button enforces (the target is a met city-state, the acting civ is not at war
+     * with it, and its gold tribute willingness is non-negative —
+     * `CityStateFunctions.getTributeWillingness(actingCiv) >= 0`), then delegates to
+     * `CityStateFunctions.tributeGold`, which pays the gold, applies the influence hit and sets the
+     * recently-bullied flag. The gold amount is derived on the authority (`goldGainedByTribute`), so
+     * it is not carried on the wire.
+     */
+    @Serializable
+    @SerialName("tributeGold")
+    data class TributeGold(
+        val cityStateCivName: String
+    ) : GameCommand
+
+    /**
+     * The acting (major) civ demands a worker from the city-state [cityStateCivName] — "bullying" it
+     * into yielding a worker-type unit at the cost of −50 influence.
+     *
+     * Mirrors the DiplomacyScreen city-state "Take worker" button. The authority validates the same
+     * gate the button enforces (met city-state, not at war, and worker tribute willingness
+     * non-negative — `getTributeWillingness(actingCiv, demandingWorker = true) >= 0`, which already
+     * folds in the "capital size ≥ 4" requirement), then delegates to
+     * `CityStateFunctions.tributeWorker`. The yielded unit's type and placement are chosen
+     * deterministically on the authority (`DiplomacyManager.state.stateBasedRandom`), so all clients
+     * converge — nothing about the spawned worker is carried on the wire.
+     */
+    @Serializable
+    @SerialName("tributeWorker")
+    data class TributeWorker(
+        val cityStateCivName: String
+    ) : GameCommand
+
     // endregion
 
     // region Trade
