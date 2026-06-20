@@ -1,9 +1,11 @@
 # BNW / Civ-V — Known Missing & Broken Features
 
 Register of **verified** gaps between Civilization V: Brave New World and this fork. Originally
-compiled 2026-06-20 against `7ee27b927`; **re-verified 2026-06-20 against `HEAD = 9a66ea451`**
-after the Assyria/Nau mechanics, ITR/WC fixes and tourism work landed. Fixed items have been
-removed and recorded under "Confirmed working" so they aren't re-raised.
+compiled 2026-06-20 against `7ee27b927`; **re-verified + a follow-up fix pass landed 2026-06-20**
+(ITR dead-owner gold guard + single-BFS establish, World-Congress mid-session dead-host re-election,
+Zulu promotion-XP cost; on top of the earlier Assyria/Nau mechanics, ITR/WC fixes and tourism work).
+Fixed items have been removed and recorded under "Confirmed working" so they aren't re-raised.
+*(Gap 1.1 Ideology is being addressed separately.)*
 
 Each item is tagged with how it was confirmed:
 - ✅ **VERIFIED** — read against source line-by-line for this doc.
@@ -36,40 +38,8 @@ What's still missing:
 - **Fix:** add a voluntary "Switch ideology" control (e.g. in `PolicyPickerScreen`) emitting
   `SwitchIdeology`, and surface an anarchy indicator.
 
-### 1.2 📋 ITR — per-turn yields can be paid to a **dead** destination owner · **Medium**
-[applyYieldsForOwner](../core/src/com/unciv/logic/trade/TradeRouteManager.kt#L206) checks
-`destCity != null` and `destOwner.civID != civ.civID` before `destOwner.addGold(...)` but does
-**not** check `destOwner.isAlive()`. If the destination owner is eliminated while still nominally
-owning the city, gold is credited to a dead civ.
-- **Fix:** add an `isAlive()` guard on the destination owner before crediting incoming-route gold.
-
-### 1.3 📋 ITR — BFS route computed twice on establish (defensive/perf) · **Low**
-The route BFS runs once in the executor to validate connectivity
-([CommandExecutor.kt:1442](../core/src/com/unciv/logic/multiplayer/v3/command/CommandExecutor.kt#L1442))
-and again inside `establish` to record `length`
-([TradeRouteManager.kt:161](../core/src/com/unciv/logic/trade/TradeRouteManager.kt#L161)). Correct,
-but the expensive pathfind happens twice.
-- **Fix:** return both existence and length from a single compute, or pass the validated length into
-  `establish`.
-
-### 1.4 ✅ World Congress — legacy diplomatic-vote helpers are stale dead code · **Low**
-The live diplomatic-victory path now goes through the congressional authority
-([WorldCongressManager.enactWorldLeaderElection:479-496](../core/src/com/unciv/logic/civilization/managers/WorldCongressManager.kt#L479)),
-which tallies **weighted delegate counts** over living majors only — so the victory is winnable.
-But the legacy helpers it superseded still ship with the old bugs and are no longer called for the
-congress path:
-[VictoryManager.calculateDiplomaticVotingResults:31](../core/src/com/unciv/logic/civilization/managers/VictoryManager.kt#L31)
-counts 1 vote/voter (2 for the UN owner), and
-[votesNeededForDiplomaticVictory:59](../core/src/com/unciv/logic/civilization/managers/VictoryManager.kt#L59)
-derives the threshold from `getVotingCivs().count()`, which still includes city-states
-([:43](../core/src/com/unciv/logic/civilization/managers/VictoryManager.kt#L43)).
-- **Fix:** remove or reconcile the legacy helpers so the two paths can't diverge.
-
-### Other verified Mediums worth a pass
-- 📋 WC: eliminated voters/hosts aren't *pruned* mid-session. Votes from dead civs are filtered at
-  tally time ([:488-490](../core/src/com/unciv/logic/civilization/managers/WorldCongressManager.kt#L488))
-  so the outcome is correct, but a defeated host keeps the seat (and its stored delegate count)
-  until the next session boundary. Defensive/lazy rather than a victory bug.
+*(ITR dead-destination-owner gold, ITR double-BFS-on-establish, and the World-Congress
+mid-session-dead-host cases were fixed — see "Confirmed working".)*
 
 ---
 
@@ -102,9 +72,6 @@ data/event engine is **unconfirmed**.
   confirm both reward branches resolve (and work over the multiplayer-v3 authority).
 
 ### 3.2 📋 Lossy-but-functional approximations (accept or refine)
-- **Zulu Iklwa:** mapped to `[+25]% XP gained from combat`
-  ([Nations.json:130](../android/assets/jsons/Civ%20V%20-%20Brave%20New%20World/Nations.json#L130))
-  rather than "−25% promotion XP cost" — wrong semantics.
 - **Indonesia Candi:** flat `+3 Faith`
   ([Buildings.json:260](../android/assets/jsons/Civ%20V%20-%20Brave%20New%20World/Buildings.json#L260),
   TODO present) instead of scaling per distinct religion present.
@@ -124,16 +91,25 @@ Great Works (registry, slots, theming, AI optimize, overview UI), ITR core (esta
 plunder/projection/AI, internal food/production routes, **far-endpoint visibility scrubbing of
 unexplored rival cities** — [PlayerViewProjector.kt:405-423](../core/src/com/unciv/logic/multiplayer/v3/visibility/PlayerViewProjector.kt#L405),
 **establish idempotency guard** — [CommandExecutor.kt:1431-1436](../core/src/com/unciv/logic/multiplayer/v3/command/CommandExecutor.kt#L1431),
-**incoming/destination-owner gold**), World Congress core (founding, delegates, sessions, most
+**incoming/destination-owner gold** with a **dead-destination-owner `isAlive()` guard**, **single
+connectivity-BFS on establish** (the authority's precomputed length is reused)), World Congress core (founding, delegates, sessions, most
 resolutions, world projects, vote-secret scrubbing, **diplomatic-victory election via weighted
 delegate tally over living majors**, **target/choice resolutions now proposable in both AI
 ([WorldCongressManager.kt:558-564](../core/src/com/unciv/logic/civilization/managers/WorldCongressManager.kt#L558))
 and human ([CommandExecutor.kt:1633-1637](../core/src/com/unciv/logic/multiplayer/v3/command/CommandExecutor.kt#L1633))
-paths**, **candidate validated as living major**, **host elected before delegate recompute**),
+paths**, **candidate validated as living major**, **host elected before delegate recompute**,
+**mid-session host re-election if the elected host is eliminated**),
 **Assyria "Treasures of Nineveh"** (steal a tech on conquest — `StealTechWhenConqueringCity` +
 [Battle.kt:705-722](../core/src/com/unciv/logic/battle/Battle.kt#L705), once-per-city via
 `City.hasProvidedConquestTech`), **Portugal Nau "Sell Exotic Goods"** (distance-scaled one-time
 Gold+XP — [SellExoticGoods.kt](../core/src/com/unciv/logic/map/mapunit/SellExoticGoods.kt) + UI
 action + v3 executor), Venice (no-settle / puppet-only / double routes / Merchant of Venice /
-buy-in-puppets), Shoshone ruins choice, Indonesia Kris random promotion, Poland free policy on era,
+buy-in-puppets), Shoshone ruins choice, Indonesia Kris random promotion, **Zulu Iklwa −25%
+promotion-XP cost** (`[-25]% XP required for promotions`), Poland free policy on era,
 and the multiplayer-v3 authority/visibility/clone-transients discipline across all of the above.
+
+The legacy `VictoryManager` UN-vote helpers (`calculateDiplomaticVotingResults`,
+`votesNeededForDiplomaticVictory`) count 1 vote/voter and include city-states — that is **correct
+for the non-congress fallback** (vanilla / G&K rulesets with a UN wonder, where city-states do vote
+in the UN). `handleDiplomaticVictoryFlags` early-returns once a World Congress is founded, so the
+congress path (weighted, majors-only) and the legacy path never both run. Not dead code, not a gap.
