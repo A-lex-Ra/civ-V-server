@@ -263,6 +263,17 @@ class MapUnit : IsPartOfGameInfoSerialization {
     /** BNW Phase 3 — ITR: a trade unit (Caravan / Cargo Ship) by data, see [BaseUnit.isTradeUnit]. */
     @Readonly fun isTradeUnit() = baseUnit.isTradeUnit()
 
+    /**
+     * BNW Phase 3 — ITR: true when this trade unit is bound to an established route and therefore on
+     * autopilot ([com.unciv.logic.trade.TradeRouteManager] shuttles it each turn). Such a unit is exempt
+     * from the start-of-turn "kicked out of foreign territory" teleport, since a trade route is allowed to
+     * cross foreign land without open borders.
+     */
+    fun isOnTradeRoute(): Boolean =
+        isTradeUnit() && civ.gameInfo.tradeRouteManager.connections.any {
+            it.unitId == id && it.ownerCivId == civ.civID
+        }
+
     @Readonly fun isActionUntilHealed() = action?.endsWith("until healed") == true
 
     @Readonly fun isFortified() = action?.startsWith(UnitActionType.Fortify.value) == true

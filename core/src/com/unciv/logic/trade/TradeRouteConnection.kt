@@ -1,6 +1,7 @@
 package com.unciv.logic.trade
 
 import com.unciv.logic.IsPartOfGameInfoSerialization
+import com.unciv.logic.map.HexCoord
 
 /**
  * BNW Phase 3 (International Trade Routes) — the route's travel medium. Derived from the establishing
@@ -51,6 +52,20 @@ class TradeRouteConnection : IsPartOfGameInfoSerialization {
      *  [TradeRouteYield.None] for an international route (which always carries gold/science/religion instead). */
     var internalYield = TradeRouteYield.None
 
+    /**
+     * The full tile path the bound trade unit shuttles along, origin city center → destination city center
+     * (both endpoints inclusive), computed once at establishment by [TradeRouteManager.computePath]. A Civ V
+     * trade unit travels its route automatically; [TradeRouteManager.advanceTradeUnitsForOwner] walks the
+     * unit one step along this path each turn (bouncing at the ends). Empty for a degenerate/legacy route,
+     * in which case the unit simply stays put. Stored (not recomputed) so the route the player saw is stable
+     * even if terrain/ownership shifts mid-route — mirroring [com.unciv.logic.map.mapunit.MapUnit.automatedRoadConnectionPath].
+     */
+    var path = ArrayList<HexCoord>()
+    /** Index into [path] of the bound unit's current tile (it always equals where the unit stands). */
+    var pathPosition = 0
+    /** Travel direction along [path]: true = heading toward the destination, false = back toward the origin. */
+    var movingToDestination = true
+
     fun clone(): TradeRouteConnection {
         val toReturn = TradeRouteConnection()
         toReturn.originCityId = originCityId
@@ -61,6 +76,9 @@ class TradeRouteConnection : IsPartOfGameInfoSerialization {
         toReturn.establishedTurn = establishedTurn
         toReturn.unitId = unitId
         toReturn.internalYield = internalYield
+        toReturn.path = ArrayList(path)
+        toReturn.pathPosition = pathPosition
+        toReturn.movingToDestination = movingToDestination
         return toReturn
     }
 }

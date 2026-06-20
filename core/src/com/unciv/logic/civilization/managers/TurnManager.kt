@@ -88,6 +88,12 @@ class TurnManager(val civInfo: Civilization) {
 
         for (unit in civInfo.units.getCivUnits()) UnitTurnManager(unit).startTurn()
 
+        // BNW Phase 3 — auto-shuttle each established trade unit one step along its route (authority-only),
+        // AFTER the loop above refreshed unit movement. Civ V trade units travel their route automatically;
+        // this also keeps them off the idle-unit list. Route yields are position-independent (banked at
+        // end-turn), so this is purely the unit's visible travel + plunder exposure.
+        civInfo.gameInfo.tradeRouteManager.advanceTradeUnitsForOwner(civInfo)
+
         if (civInfo.playerType == PlayerType.Human && UncivGame.Current.settings.automatedUnitsMoveOnTurnStart) {
             civInfo.hasMovedAutomatedUnits = true
             for (unit in civInfo.units.getCivUnits())

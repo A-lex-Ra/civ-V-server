@@ -164,6 +164,9 @@ class UnitTurnManager(val unit: MapUnit) {
                 && !unit.cache.canEnterForeignTerrain
                 && !unit.civ.diplomacyFunctions.canPassThroughTiles(tileOwner)
                 && !tileOwner.isCityState
+                // BNW ITR: a trade unit shuttling its route legitimately crosses foreign land without open
+                // borders, so don't yank it back out — it's on autopilot, not stranded.
+                && !unit.isOnTradeRoute()
         ) // if an enemy city expanded onto this tile while I was in it
             unit.movement.teleportToClosestMoveableTile()
 

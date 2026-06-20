@@ -14,6 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -296,6 +297,60 @@ class TradeRouteManagerTest {
         assertTrue("An unrelated unit id drops nothing", dropped.isEmpty())
         assertEquals("The route remains", 1, manager.connections.size)
         assertFalse(manager.connections.isEmpty())
+    }
+
+    // endregion
+    // region auto-shuttle travel
+
+    @Test
+    fun `establish stores the route path with the unit parked at the origin`() {
+        val origin = testGame.addCity(civ, testGame.getTile(0, 0))
+        val dest = testGame.addCity(civ, testGame.getTile(3, 0))
+        grantTokens(civ, 1)
+        val unit = addLandTradeUnit(civ, origin)
+
+        val route = manager.establish(origin, dest, unit)
+
+        assertTrue("A stored path has at least the two endpoints", route.path.size >= 2)
+        assertEquals("Path starts at the origin city center", origin.getCenterTile().position, route.path.first())
+        assertEquals("Path ends at the destination city center", dest.getCenterTile().position, route.path.last())
+        assertEquals("length equals the stored path size", route.path.size, route.length)
+        assertEquals("Unit parks at the start of its path", 0, route.pathPosition)
+        assertTrue("Unit heads toward the destination first", route.movingToDestination)
+        assertSame("Unit starts on the origin center tile", unit, origin.getCenterTile().tradeUnit)
+    }
+
+    @Test
+    fun `advanceTradeUnitsForOwner shuttles the bound unit along its route and bounces at the ends`() {
+        val origin = testGame.addCity(civ, testGame.getTile(0, 0))
+        val dest = testGame.addCity(civ, testGame.getTile(3, 0))
+        grantTokens(civ, 1)
+        val unit = addLandTradeUnit(civ, origin)
+        val route = manager.establish(origin, dest, unit)
+        val lastIndex = route.path.lastIndex
+
+        // One turn of travel: the caravan leaves its origin for a later path tile, and the origin slot frees.
+        manager.advanceTradeUnitsForOwner(civ)
+        assertTrue("Unit advanced along its path", route.pathPosition > 0)
+        assertNull("The origin trade slot is freed once the caravan departs", origin.getCenterTile().tradeUnit)
+        assertSame("The caravan occupies the trade slot of its current path tile",
+            unit, testGame.gameInfo.tileMap[route.path[route.pathPosition]].tradeUnit)
+        assertEquals("On autopilot, the unit ends the turn with no movement (so it's never idle)",
+            0f, unit.currentMovement, 0f)
+
+        // Over continued travel the caravan reaches the far (destination) end and then turns back home.
+        var reachedFarEnd = false
+        var reversed = false
+        repeat(30) {
+            manager.advanceTradeUnitsForOwner(civ)
+            if (route.pathPosition >= lastIndex - 1) reachedFarEnd = true
+            if (!route.movingToDestination) reversed = true
+            // Invariant: the unit is always standing on its current path index.
+            assertSame("Unit stays in sync with its path index",
+                unit, testGame.gameInfo.tileMap[route.path[route.pathPosition]].tradeUnit)
+        }
+        assertTrue("Caravan travels out toward the destination", reachedFarEnd)
+        assertTrue("Caravan turns around and heads home (bounce)", reversed)
     }
 
     // endregion

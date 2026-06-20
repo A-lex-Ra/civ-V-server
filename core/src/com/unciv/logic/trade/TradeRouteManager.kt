@@ -6,7 +6,9 @@ import com.unciv.logic.city.City
 import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.map.BFS
+import com.unciv.logic.map.HexCoord
 import com.unciv.logic.map.mapunit.MapUnit
+import com.unciv.logic.map.tile.Tile
 import com.unciv.models.stats.Stats
 import yairm210.purity.annotations.Readonly
 
@@ -107,27 +109,43 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
      * Length is the number of tiles on the path returned by [BFS.getPathTo] (includes both endpoints).
      */
     fun computeRoute(originCity: City, destCity: City, type: TradeRouteType): Int? {
-        val originTile = originCity.getCenterTile()
         val destTile = destCity.getCenterTile()
-        val ownerCiv = originCity.civ
-
-        // A city center is always passable (a route may terminate at, or pass through, a city —
-        // including a foreign destination you want to trade with). Crossing non-city LAND follows the Civ V
-        // rule: a trade unit traverses ANY territory it is not at war with — neutral, own, city-state, or
-        // another major civ — WITHOUT needing open borders ([canTradeRouteEnter]). Sea routes hop water +
-        // cities. (This is NOT the road-based capital connection, which DOES require open borders — see the
-        // class header; the two "trade route" mechanics are distinct.)
-        val bfs = when (type) {
-            TradeRouteType.Land -> BFS(originTile) { tile ->
-                tile.isCityCenter() || (tile.isLand && canTradeRouteEnter(ownerCiv, tile))
-            }
-            TradeRouteType.Sea -> BFS(originTile) { tile ->
-                tile.isWater || tile.isCityCenter()
-            }
-        }
+        val bfs = tradeRouteBfs(originCity.getCenterTile(), originCity.civ, type)
         bfs.stepUntilDestination(destTile)
         if (!bfs.hasReachedTile(destTile)) return null
         return bfs.getPathTo(destTile).count()
+    }
+
+    /**
+     * The tile path a route of [type] from [originCity] to [destCity] follows — origin center → destination
+     * center, both endpoints inclusive — or `null` if no such route exists. Same BFS/passability as
+     * [computeRoute] (its `count()` equals this list's `size`); used to give the establishing route the
+     * exact tiles its trade unit will shuttle along ([TradeRouteConnection.path]). [com.unciv.logic.map.BFS.getPathTo]
+     * yields the path destination-first, so we reverse it to origin-first.
+     */
+    fun computePath(originCity: City, destCity: City, type: TradeRouteType): List<HexCoord>? {
+        val destTile = destCity.getCenterTile()
+        val bfs = tradeRouteBfs(originCity.getCenterTile(), originCity.civ, type)
+        bfs.stepUntilDestination(destTile)
+        if (!bfs.hasReachedTile(destTile)) return null
+        return bfs.getPathTo(destTile).map { it.position }.toList().asReversed()
+    }
+
+    /**
+     * The connectivity BFS shared by [computeRoute] / [computePath]. A city center is always passable (a
+     * route may terminate at, or pass through, a city — including a foreign destination you want to trade
+     * with). Crossing non-city LAND follows the Civ V rule: a trade unit traverses ANY territory it is not
+     * at war with — neutral, own, city-state, or another major civ — WITHOUT needing open borders
+     * ([canTradeRouteEnter]). Sea routes hop water + cities. (This is NOT the road-based capital connection,
+     * which DOES require open borders — see the class header; the two "trade route" mechanics are distinct.)
+     */
+    private fun tradeRouteBfs(originTile: Tile, ownerCiv: Civilization, type: TradeRouteType): BFS = when (type) {
+        TradeRouteType.Land -> BFS(originTile) { tile ->
+            tile.isCityCenter() || (tile.isLand && canTradeRouteEnter(ownerCiv, tile))
+        }
+        TradeRouteType.Sea -> BFS(originTile) { tile ->
+            tile.isWater || tile.isCityCenter()
+        }
     }
 
     /**
@@ -165,26 +183,102 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
     fun establish(
         originCity: City, destCity: City, unit: MapUnit,
         internalYield: TradeRouteYield = TradeRouteYield.None,
-        precomputedLength: Int? = null
+        precomputedPath: List<HexCoord>? = null
     ): TradeRouteConnection {
         val type = if (unit.baseUnit.isLandUnit) TradeRouteType.Land else TradeRouteType.Sea
-        // Reuse the caller's already-computed length when provided (the v3 authority path validates
-        // connectivity with computeRoute first) to avoid running the BFS a second time here.
-        val length = precomputedLength ?: (computeRoute(originCity, destCity, type) ?: 0)
+        // Reuse the caller's already-computed path when provided (the v3 authority path validates
+        // connectivity with computePath first) to avoid running the BFS a second time here. Fall back to a
+        // single-tile path (just the origin) only if a connectivity check somehow returns nothing — the
+        // caller is expected to have already verified the route is reachable.
+        val tilePath = precomputedPath ?: computePath(originCity, destCity, type)
+            ?: arrayListOf(originCity.getCenterTile().position)
         val connection = TradeRouteConnection().apply {
             originCityId = originCity.id
             destinationCityId = destCity.id
             ownerCivId = unit.civ.civID
             this.type = type
-            this.length = length
+            this.length = tilePath.size
             establishedTurn = gameInfo.turns
             unitId = unit.id
             this.internalYield = internalYield
+            this.path = ArrayList(tilePath)
+            // The unit starts parked on its origin city center (path[0]), heading out to the destination.
+            this.pathPosition = 0
+            this.movingToDestination = true
         }
         connections.add(connection)
         unit.currentMovement = 0f
         unit.action = null
         return connection
+    }
+
+    //endregion
+    //region Travel — auto-shuttle (Civ V: a trade unit travels its route automatically)
+
+    /**
+     * Walk every one of [civ]'s established trade units one turn's worth of steps along its route, bouncing
+     * between origin and destination forever (Civ V: a Caravan / Cargo Ship is never hand-driven once its
+     * route is set — it shuttles automatically and is plunderable while exposed en route). Authority-only,
+     * called once per owner from [com.unciv.logic.civilization.managers.TurnManager.startTurn] AFTER unit
+     * movement is refreshed. Route YIELDS do not depend on the unit's position (they are banked by owner at
+     * end-turn), so this is pure travel: it makes the unit visible along its path, exposes it to plunder,
+     * and keeps it off the idle-unit list (it ends each turn with no movement).
+     *
+     * Resolving the bound unit by id and skipping when it's gone is safe — a plundered/dead unit's route is
+     * already dropped on death ([com.unciv.logic.map.mapunit.MapUnit.destroy]) and on expiry.
+     */
+    fun advanceTradeUnitsForOwner(civ: Civilization) {
+        for (connection in getRoutesEstablishedBy(civ.civID)) {
+            val unit = civ.units.getCivUnits().firstOrNull { it.id == connection.unitId } ?: continue
+            advanceTradeUnit(connection, unit)
+        }
+    }
+
+    /** One turn of shuttle travel for [unit] along [connection]'s stored path. */
+    private fun advanceTradeUnit(connection: TradeRouteConnection, unit: MapUnit) {
+        val path = connection.path
+        if (path.size < 2) return // degenerate / legacy route with no stored path — just stay put
+        // Speed = the unit's full movement allowance in tiles this turn (Caravan 2, more with extended range).
+        val steps = unit.getMaxMovement().coerceAtLeast(1)
+        var moved = false
+        repeat(steps) {
+            // Next index along the path, turning around at either end (bounce).
+            var nextIndex = connection.pathPosition + if (connection.movingToDestination) 1 else -1
+            var flipDirection = false
+            if (nextIndex > path.lastIndex) { nextIndex = path.lastIndex - 1; flipDirection = true }
+            else if (nextIndex < 0) { nextIndex = 1; flipDirection = true }
+
+            val nextPos = path[nextIndex]
+            val nextTile = gameInfo.tileMap.getOrNull(nextPos.x, nextPos.y) ?: return
+            // The caravan waits this turn (keeping pathPosition on its current tile, retrying next turn) if
+            // the next tile is blocked, because the low-level placement below bypasses the normal movement
+            // checks. Blocked = the trade slot is taken by another trade unit (two may not share a tile), or
+            // a hostile military unit stands there (a defenseless trade unit must not walk onto an enemy —
+            // it would otherwise sit "safe" under it; real plunder-on-contact is a future refinement).
+            if (nextTile.tradeUnit != null && nextTile.tradeUnit !== unit) return
+            val blockingMilitary = nextTile.militaryUnit
+            if (blockingMilitary != null && unit.civ.isAtWarWith(blockingMilitary.civ)) return
+
+            placeTradeUnit(unit, nextTile)
+            connection.pathPosition = nextIndex
+            if (flipDirection) connection.movingToDestination = !connection.movingToDestination
+            moved = true
+        }
+        // Spend the unit's movement so it never appears as an idle unit needing orders — it is on autopilot.
+        if (moved) unit.currentMovement = 0f
+    }
+
+    /**
+     * Relocate the trade [unit] to [tile] along its route, BYPASSING the normal open-borders movement
+     * checks — a trade route is allowed to cross foreign territory without open borders ([canTradeRouteEnter]),
+     * which [com.unciv.logic.map.mapunit.MapUnit.putInTile] would reject. Mirrors `putInTile` otherwise:
+     * clear the old trade slot, claim the new one, then run [com.unciv.logic.map.mapunit.MapUnit.moveThroughTile]
+     * for the standard side effects (currentTile, vision update, enter-tile triggers).
+     */
+    private fun placeTradeUnit(unit: MapUnit, tile: Tile) {
+        unit.removeFromTile()
+        tile.tradeUnit = unit
+        unit.moveThroughTile(tile)
     }
 
     //endregion

@@ -1481,8 +1481,11 @@ class CommandExecutor {
 
         val type = if (unit.baseUnit.isLandUnit)
             com.unciv.logic.trade.TradeRouteType.Land else com.unciv.logic.trade.TradeRouteType.Sea
-        val length = manager.computeRoute(originCity, destCity, type)
+        // Compute the PATH (not just the length) once here so the unit's auto-shuttle gets the exact tiles
+        // to travel without a second BFS; its size is the route length used for the range gate.
+        val path = manager.computePath(originCity, destCity, type)
             ?: throw CommandException("No ${type} trade route connects '${originCity.name}' to '${destCity.name}'")
+        val length = path.size
         if (length > com.unciv.logic.trade.TradeRouteManager.maxRouteLength(unit))
             throw CommandException("'${destCity.name}' is beyond the trade unit's range ($length tiles)")
 
@@ -1498,7 +1501,7 @@ class CommandExecutor {
             com.unciv.logic.trade.TradeRouteYield.Food.name -> com.unciv.logic.trade.TradeRouteYield.Food
             else -> com.unciv.logic.trade.TradeRouteYield.Production
         }
-        manager.establish(originCity, destCity, unit, internalYield, length)
+        manager.establish(originCity, destCity, unit, internalYield, path)
     }
 
     /**
