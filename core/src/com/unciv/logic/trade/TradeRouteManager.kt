@@ -155,10 +155,13 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
      */
     fun establish(
         originCity: City, destCity: City, unit: MapUnit,
-        internalYield: TradeRouteYield = TradeRouteYield.None
+        internalYield: TradeRouteYield = TradeRouteYield.None,
+        precomputedLength: Int? = null
     ): TradeRouteConnection {
         val type = if (unit.baseUnit.isLandUnit) TradeRouteType.Land else TradeRouteType.Sea
-        val length = computeRoute(originCity, destCity, type) ?: 0
+        // Reuse the caller's already-computed length when provided (the v3 authority path validates
+        // connectivity with computeRoute first) to avoid running the BFS a second time here.
+        val length = precomputedLength ?: (computeRoute(originCity, destCity, type) ?: 0)
         val connection = TradeRouteConnection().apply {
             originCityId = originCity.id
             destinationCityId = destCity.id
@@ -206,7 +209,9 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
             val destCity = getDestinationCity(connection)
             if (destCity != null) {
                 val destOwner = destCity.civ
-                if (yields.destOwnerGold != 0 && destOwner.civID != civ.civID)
+                // Don't credit gold to a destination owner who has been eliminated (a dead civ still
+                // nominally "owns" a city for a tick before cleanup); only living rivals are paid.
+                if (yields.destOwnerGold != 0 && destOwner.civID != civ.civID && destOwner.isAlive())
                     destOwner.addGold(yields.destOwnerGold)
                 if (yields.destFood > 0)
                     destCity.population.foodStored += yields.destFood

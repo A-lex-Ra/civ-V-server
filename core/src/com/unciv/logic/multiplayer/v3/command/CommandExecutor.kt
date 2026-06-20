@@ -1456,7 +1456,7 @@ class CommandExecutor {
             com.unciv.logic.trade.TradeRouteYield.Food.name -> com.unciv.logic.trade.TradeRouteYield.Food
             else -> com.unciv.logic.trade.TradeRouteYield.Production
         }
-        manager.establish(originCity, destCity, unit, internalYield)
+        manager.establish(originCity, destCity, unit, internalYield, length)
     }
 
     /**

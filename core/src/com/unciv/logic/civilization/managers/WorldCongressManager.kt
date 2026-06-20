@@ -234,6 +234,14 @@ class WorldCongressManager : IsPartOfGameInfoSerialization {
             return
         }
 
+        // If the elected host is no longer an alive member (eliminated mid-session), re-elect and refresh
+        // the stored delegate counts so the host bonus / projection don't reference a dead civ until the
+        // next session boundary. getMemberCivs() is the alive-majors set, so a missing host means it died.
+        if (hostCivId.isNotEmpty() && getMemberCivs().none { it.civID == hostCivId }) {
+            electHost()
+            recomputeDelegates()
+        }
+
         when (currentPhase) {
             CongressPhase.Idle -> {
                 if (turnsUntilNextSession > 0) turnsUntilNextSession--
