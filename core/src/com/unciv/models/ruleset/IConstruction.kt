@@ -305,8 +305,14 @@ open class PerpetualConstruction(override var name: String, val description: Str
             override fun isBuildable(cityConstructions: CityConstructions): Boolean = true
         }
 
+        // BNW Phase 3 — World Congress world projects. Selectable city projects that exist ONLY while their
+        // resolution's World Project is active in the congress (see [WorldProjectConstruction]).
+        val worldsFair = WorldProjectConstruction("WorldsFair", "World's Fair")
+        val internationalGames = WorldProjectConstruction("InternationalGames", "International Games")
+
         val perpetualConstructionsMap: Map<String, PerpetualConstruction>
-                = mapOf(science.name to science, gold.name to gold, culture.name to culture, faith.name to faith, food.name to food, idle.name to idle)
+                = mapOf(science.name to science, gold.name to gold, culture.name to culture, faith.name to faith, food.name to food, idle.name to idle,
+                        worldsFair.name to worldsFair, internationalGames.name to internationalGames)
 
         /** @return whether [name] represents a PerpetualConstruction - note "" is translated to Nothing in the queue so `isNamePerpetual("")==true` */
         fun isNamePerpetual(name: String) = name.isEmpty() || name in perpetualConstructionsMap
@@ -336,4 +342,33 @@ open class PerpetualStatConversion(val stat: Stat) :
         return city.civ.getMatchingUniques(UniqueType.EnablesStatProduction, stateForConditionals)
             .any { it.params[0] == stat.name }
     }
+}
+
+/**
+ * BNW Phase 3 — World Congress. A selectable city "project" that exists ONLY while its World Project
+ * (World's Fair / International Games) is active in the World Congress, mirroring Civ V's World Projects.
+ *
+ * Modeled as a [PerpetualConstruction] (no fixed cost, runs while selected): each turn the city's production
+ * is banked into the active [com.unciv.logic.civilization.WorldProject] by
+ * [com.unciv.logic.city.CityConstructions.endTurn] (which special-cases this type). When the project
+ * resolves, [isBuildable] turns false and the city's queue validation drops it — no save migration needed.
+ *
+ * [resolutionTypeName] is the `ResolutionType` enum name this construction represents (matched against the
+ * active project's `projectType`); [name] is its display / queue key.
+ */
+class WorldProjectConstruction(
+    val resolutionTypeName: String,
+    name: String
+) : PerpetualConstruction(name, "Contribute production to the active [$name] world project.") {
+
+    override fun isBuildable(cityConstructions: CityConstructions): Boolean {
+        val city = cityConstructions.city
+        val congress = city.civ.gameInfo.congress
+        return congress.isFounded
+            && congress.activeWorldProject?.projectType == resolutionTypeName
+            && congress.isMember(city.civ.civID)
+    }
+
+    override fun getProductionTooltip(city: City, withIcon: Boolean): String =
+        "\r\n${city.cityStats.currentCityStats.production.roundToInt()}/${Fonts.turn}"
 }

@@ -23,6 +23,7 @@ import com.unciv.models.ruleset.INonPerpetualConstruction
 import com.unciv.models.ruleset.IRulesetObject
 import com.unciv.models.ruleset.PerpetualConstruction
 import com.unciv.models.ruleset.RejectionReasonType
+import com.unciv.models.ruleset.WorldProjectConstruction
 import com.unciv.models.ruleset.Ruleset
 import com.unciv.models.ruleset.unique.UniqueMap
 import com.unciv.models.ruleset.unique.UniqueTriggerActivation
@@ -402,9 +403,15 @@ class CityConstructions : IsPartOfGameInfoSerialization {
         validateConstructionQueue()
         validateInProgressConstructions()
 
-        if (getConstruction( currentConstructionName()) !is PerpetualConstruction) {
+        val currentConstruction = getConstruction(currentConstructionName())
+        // BNW World Congress: a World Project construction banks this city's production into the active
+        // project (instead of into a normal construction or a stat conversion).
+        if (currentConstruction is WorldProjectConstruction)
+            city.civ.gameInfo.congress.contributeToWorldProject(city.civ, cityStats.production.roundToInt())
+
+        if (currentConstruction !is PerpetualConstruction) {
             if (getWorkDone( currentConstructionName()) == 0) {
-                constructionBegun(getConstruction( currentConstructionName()))
+                constructionBegun(currentConstruction)
             }
             addProductionPoints(cityStats.production.roundToInt() + productionOverflow)
             productionOverflow = 0

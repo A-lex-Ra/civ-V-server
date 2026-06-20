@@ -259,8 +259,12 @@ object ImageGetter {
         if (ruleset.units.containsKey(construction)) {
             return PortraitUnit(construction, size)
         }
-        if (PerpetualConstruction.perpetualConstructionsMap.containsKey(construction))
-            return getImage("OtherIcons/Convert$construction").toGroup(size)
+        if (PerpetualConstruction.perpetualConstructionsMap.containsKey(construction)) {
+            // Stat conversions have a "Convert<Stat>" icon; other perpetuals (e.g. World Projects) don't,
+            // so fall back to a generic icon rather than a missing-texture placeholder.
+            val convertIcon = "OtherIcons/Convert$construction"
+            return getImage(if (imageExists(convertIcon)) convertIcon else "OtherIcons/Diplomacy").toGroup(size)
+        }
         return getStatIcon(construction).surroundWithCircle(size).surroundWithThinCircle()
     }
 
