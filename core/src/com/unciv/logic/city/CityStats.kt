@@ -419,6 +419,23 @@ class CityStats(val city: City) {
 
         newHappinessList["Buildings"] = statsFromBuildings.totalStats.happiness.toInt().toFloat()
 
+        // Civ V local vs global Happiness: a building's Happiness is *local* — it can only offset
+        // unhappiness up to this city's Population, and any excess is wasted (entertainment buildings
+        // like the Colosseum, plus ideology tenets such as Socialist Realism that add Happiness to
+        // buildings via StatsFromBuildings, which lands in this city's "Buildings" total). Wonders that
+        // grant *global* Happiness (Notre Dame, Circus Maximus, …) carry GlobalHappiness and are exempt.
+        // Luxuries / policies / beliefs are aggregated civ-wide and never enter this per-city list, so
+        // they are already global. We keep "Buildings" at its full value and book the capped overflow as
+        // a negative "Wasted Local Happiness" line, which the empire breakdown sums in like any other key.
+        var localBuildingHappiness = 0f
+        for (building in city.cityConstructions.getBuiltBuildings()) {
+            if (building.hasUnique(UniqueType.GlobalHappiness, city.state)) continue
+            localBuildingHappiness += statsFromBuildings.children[building.name]?.totalStats?.happiness ?: 0f
+        }
+        val localHappinessCap = city.population.population.toFloat()
+        if (localBuildingHappiness > localHappinessCap)
+            newHappinessList["Wasted Local Happiness"] = -(localBuildingHappiness - localHappinessCap)
+
         newHappinessList["Tile yields"] = statsFromTiles.happiness
 
         val happinessBySource = getStatsFromUniquesBySource()

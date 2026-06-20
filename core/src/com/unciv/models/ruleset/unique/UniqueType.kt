@@ -400,6 +400,8 @@ enum class UniqueType(
     GoldFromCapturingCity("[relativeAmount]% Gold given to enemy if city is captured", UniqueTarget.Building),
 
     RemovesAnnexUnhappiness("Removes extra unhappiness from annexed cities", UniqueTarget.Building),
+    GlobalHappiness("Happiness from this building is global", UniqueTarget.Building,
+        docDescription = "By default a building's Happiness is *local*: it can only offset unhappiness up to the city's own Population, and any excess is wasted (Civ V's local-happiness rule for entertainment buildings). This unique exempts the building from that Population cap, so its Happiness counts globally (empire-wide) like Luxury or Social-Policy Happiness — used for wonders such as Notre Dame or the Circus Maximus."),
     ConnectTradeRoutes("Connects trade routes over water", UniqueTarget.Building),
     GainBuildingWhereBuildable("Automatically built in all cities where it is buildable", UniqueTarget.Building),
 

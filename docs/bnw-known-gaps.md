@@ -86,11 +86,25 @@ data/event engine is **unconfirmed**.
     unconditionally (should be vs other Order civs / vs less-happy civs); **Iron Curtain** trade
     bonus rides the legacy capital-connection path, not BNW internal routes; **Double Agents** /
     **Spaceflight Pioneers** spy & Great-Engineer flavour substituted. *(Socialist Realism is now
-    **fixed** — +2 Happiness from Monuments, +100% Monument production.)*
+    **fixed** — +2 **local** Happiness from Monuments, +100% Monument production.)*
   - *Autocracy* — **Industrial Espionage** / **Cult of Personality** / **Gunboat Diplomacy** spy &
     city-state effects approximated (need spy "2× faster" / common-enemy / tribute-CS conditionals).
-  - *Systematic:* tenet Happiness is modelled **globally** (per-civ) rather than Civ V's **local**
-    (per-city) — an engine-model limitation touching many happiness tenets.
+  - *Systematic:* Civ V's **local vs global Happiness** is now **implemented**
+    ([CityStats.kt](../core/src/com/unciv/logic/city/CityStats.kt), `updateCityHappiness`). A
+    building's Happiness is **local** — it can only offset unhappiness up to the city's **Population**,
+    and the excess is wasted (booked as a `Wasted Local Happiness` line that the empire breakdown sums
+    in). Luxuries / Social-Policy / belief / other civ-wide Happiness is aggregated empire-wide and so
+    stays **global**. The four global-Happiness wonders (Notre Dame, Circus Maximus, Eiffel Tower,
+    Prora) carry the new `Happiness from this building is global` unique
+    ([UniqueType.GlobalHappiness](../core/src/com/unciv/models/ruleset/unique/UniqueType.kt)) and are
+    exempt from the cap. This makes every `+X Local Happiness from [building]` tenet genuinely local —
+    Socialist Realism, the three Universal Healthcares, Capitalism, Urbanization, Young Pioneers,
+    Academy of Sciences, Fortified Borders, Militarism, Police State — since they all add Happiness to
+    non-wonder buildings (`StatsFromBuildings`), which lands in the capped per-city "Buildings" pool.
+    *Minor remaining approximations:* a few per-city Happiness **policy/belief** uniques that are not
+    "from buildings" (e.g. Goddess of Love, Sacred Waters, Military Caste's garrison Happiness) are
+    still treated as global rather than population-capped, and Neuschwanstein's "+1 global per Castle"
+    rides the local Castle line.
 - **Landmark culture:** flat value instead of scaling with era difference.
 - **2 new BNW scenarios:** not ported (out of scope).
 
