@@ -28,6 +28,7 @@ import com.unciv.logic.github.Github.repoNameToFolderName
 import com.unciv.logic.map.MapShape
 import com.unciv.logic.map.TileMap
 import com.unciv.logic.map.tile.Tile
+import com.unciv.logic.trade.TradeRouteManager
 import com.unciv.models.Religion
 import com.unciv.models.metadata.GameParameters
 import com.unciv.models.ruleset.GlobalUniques
@@ -110,6 +111,8 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
     var barbarians = BarbarianManager()
     /** BNW Phase 2c — authoritative registry of every Great Work and its slot placement (D1). */
     var greatWorkManager = GreatWorkManager()
+    /** BNW Phase 3 — authoritative registry of every established International Trade Route (D1). */
+    var tradeRouteManager = TradeRouteManager()
     var religions: HashMap<String, Religion> = hashMapOf()
     var difficulty = "Chieftain" // difficulty is game-wide, think what would happen if 2 human players could play on different difficulties?
     var tileMap: TileMap = TileMap()
@@ -196,6 +199,7 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
             .toCollection(ArrayList(civilizations.size))
         toReturn.barbarians = barbarians.clone()
         toReturn.greatWorkManager = greatWorkManager.clone()
+        toReturn.tradeRouteManager = tradeRouteManager.clone()
         toReturn.religions.putAll(religions.asSequence().map { it.key to it.value.clone() })
         toReturn.currentPlayer = currentPlayer
         toReturn.currentTurnStartTime = currentTurnStartTime
@@ -688,6 +692,9 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
     // will be done here, and not in Civilization.setTransients or City
     fun setTransients()  {
         tileMap.gameInfo = this
+        // BNW Phase 3 — re-attach the GameInfo-level trade-route registry before the per-civ
+        // setTransients loop (it only needs the gameInfo back-reference, no civ state).
+        tradeRouteManager.setTransients(this)
 
         // [TEMPORARY] Convert old saves to newer ones by moving base rulesets from the mod list to the base ruleset field
         convertOldSavesToNewSaves()

@@ -480,4 +480,62 @@ class PlayerViewProjectorTest {
     }
 
     // endregion
+
+    // region Trade Routes (BNW Phase 3 — Increment 5)
+
+    /**
+     * Sets up an A→B trade route (owned by A, origin A's city, dest B's city) and a B→C trade route
+     * (owned by B, origin B's city, dest C's city), returning (civC, aToB, bToC).
+     */
+    private fun setUpTwoTradeRoutes(): Triple<Civilization, com.unciv.logic.trade.TradeRouteConnection, com.unciv.logic.trade.TradeRouteConnection> {
+        val civC = testGame.addCiv()
+        val cityA: City = testGame.addCity(civA, testGame.tileMap[0, 0])
+        val cityB: City = testGame.addCity(civB, testGame.tileMap[3, 0])
+        val cityC: City = testGame.addCity(civC, testGame.tileMap[-3, 0])
+
+        val aToB = com.unciv.logic.trade.TradeRouteConnection().apply {
+            ownerCivId = civA.civID; originCityId = cityA.id; destinationCityId = cityB.id
+        }
+        val bToC = com.unciv.logic.trade.TradeRouteConnection().apply {
+            ownerCivId = civB.civID; originCityId = cityB.id; destinationCityId = cityC.id
+        }
+        testGame.gameInfo.tradeRouteManager.connections.add(aToB)
+        testGame.gameInfo.tradeRouteManager.connections.add(bToC)
+        return Triple(civC, aToB, bToC)
+    }
+
+    private fun connectionsFor(view: GameInfo) = view.tradeRouteManager.connections
+
+    @Test
+    fun tradeRouteViewerSeesOwnAndCityTouchingButNotPurelyRivalRoutes() {
+        val (civC, _, _) = setUpTwoTradeRoutes()
+
+        // A: sees its own A→B route; the purely-rival B→C route is scrubbed.
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        assertEquals("A sees exactly one route (its own A→B)", 1, connectionsFor(viewForA).size)
+        assertEquals(civA.civID, connectionsFor(viewForA).first().ownerCivId)
+
+        // B: A→B touches B's city, B→C is B's own — both present.
+        val viewForB = PlayerViewProjector.projectFor(testGame.gameInfo, civB.civID)
+        assertEquals("B sees both routes (one touches its city, one it owns)", 2, connectionsFor(viewForB).size)
+
+        // C: only B→C touches C's city; A→B is purely rival -> absent.
+        val viewForC = PlayerViewProjector.projectFor(testGame.gameInfo, civC.civID)
+        assertEquals("C sees exactly one route (the B→C route touching its city)", 1, connectionsFor(viewForC).size)
+        assertEquals(civB.civID, connectionsFor(viewForC).first().ownerCivId)
+    }
+
+    @Test
+    fun tradeRouteProjectionLeavesTheCanonicalRegistryUntouched() {
+        setUpTwoTradeRoutes()
+        val canonicalBefore = testGame.gameInfo.tradeRouteManager.connections.size
+        assertEquals("Precondition: two routes canonically", 2, canonicalBefore)
+
+        PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+
+        assertEquals("Projection must NOT drop routes from the canonical registry",
+            canonicalBefore, testGame.gameInfo.tradeRouteManager.connections.size)
+    }
+
+    // endregion
 }

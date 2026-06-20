@@ -417,6 +417,7 @@ enum class UniqueType(
     BuildImprovements("Can build [improvementFilter/terrainFilter] improvements on tiles", UniqueTarget.Unit),
     CanSpreadReligion("Can Spread Religion", UniqueTarget.UnitAction),
     CanRemoveHeresy("Can remove other religions from cities", UniqueTarget.UnitAction),
+    EstablishTradeRoute("Can establish trade routes between cities", UniqueTarget.Unit),
     MayFoundReligion("May found a religion", UniqueTarget.UnitAction),
     MayEnhanceReligion("May enhance a religion", UniqueTarget.UnitAction),
 

@@ -113,6 +113,7 @@ class CommandExecutor {
             is GameCommand.SpreadReligion -> executeSpreadReligion(gameInfo, playerCivId, command)
             is GameCommand.RemoveHeresy -> executeRemoveHeresy(gameInfo, playerCivId, command)
             is GameCommand.ResolveEvent -> executeResolveEvent(gameInfo, playerCivId, command)
+            is GameCommand.EstablishTradeRoute -> executeEstablishTradeRoute(gameInfo, playerCivId, command)
             is GameCommand.MoveGreatWork -> executeMoveGreatWork(gameInfo, playerCivId, command)
             is GameCommand.EndTurn ->
                 // Inter-turn processing (GameInfo.nextTurn) is owned by the session/authority loop,
@@ -1376,6 +1377,64 @@ class CommandExecutor {
         // Apply the chosen branch on the canonical state, then consume the alert so it isn't re-presented.
         choice.triggerChoice(actingCiv, unit)
         actingCiv.popupAlerts.remove(pendingAlert)
+    }
+
+    // endregion
+
+    // region trade routes
+
+    /**
+     * BNW Phase 3 — Increment 2: the acting civ's trade unit establishes an International Trade Route from
+     * its capital to the destination city. Mirrors [executeBuildImprovement]/[executeSpreadReligion] in
+     * shape: resolve the subject, validate every gate (each → [CommandException]), then apply via the
+     * shared [com.unciv.logic.trade.TradeRouteManager.establish].
+     *
+     * Gates (all reject without mutating state):
+     *  - the acting civ owns a unit on the unit tile, and it is a trade unit (D6 — by data, not by name);
+     *  - the acting civ has a capital (the route's origin);
+     *  - the destination is a real city center distinct from the origin;
+     *  - capacity is free (`usedCapacity < getMaxCapacity` — the `Trade Route` token count, Venice doubled);
+     *  - a route of the unit's type (Land for a Caravan, Sea for a Cargo Ship) connects, within length budget;
+     *  - the engine action is actually available right now (the same getter the UI/AI use).
+     */
+    private fun executeEstablishTradeRoute(gameInfo: GameInfo, playerCivId: String, command: GameCommand.EstablishTradeRoute) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val unitTile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        val unit = requireUnitOnTile(unitTile, actingCiv, command.unitX, command.unitY)
+        val destCityTile = requireCityCenterTile(gameInfo, command.destCityX, command.destCityY)
+        val destCity = destCityTile.getCity()!!
+
+        if (!com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsTrade.isTradeUnit(unit))
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) is not a trade unit")
+
+        val originCity = actingCiv.getCapital()
+            ?: throw CommandException("'$playerCivId' has no capital to originate a trade route from")
+        if (destCity.id == originCity.id)
+            throw CommandException("A trade route's destination must differ from its origin")
+
+        val manager = gameInfo.tradeRouteManager
+        if (manager.usedCapacity(actingCiv.civID) >= manager.getMaxCapacity(actingCiv))
+            throw CommandException("'$playerCivId' has no free trade-route capacity")
+
+        val type = if (unit.baseUnit.isLandUnit)
+            com.unciv.logic.trade.TradeRouteType.Land else com.unciv.logic.trade.TradeRouteType.Sea
+        val length = manager.computeRoute(originCity, destCity, type)
+            ?: throw CommandException("No ${type} trade route connects the capital to '${destCity.name}'")
+        if (length > com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsTrade.maxRouteLength(unit))
+            throw CommandException("'${destCity.name}' is beyond the trade unit's range ($length tiles)")
+
+        // The unit must still have movement to establish (the same gate the UI/AI use).
+        if (!unit.hasMovement())
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) has no movement left to establish a trade route")
+
+        // The unit must be ON its own destination city center (distance 0) OR ADJACENT to it (distance 1):
+        // the engine forbids entering a FOREIGN city center, so an international route is established by
+        // "docking" on a tile next to the destination. Validate against THIS command's destination — the
+        // UI getter picks its own best destination, which need not match the wire command.
+        if (unitTile.aerialDistanceTo(destCityTile) > 1)
+            throw CommandException("Unit must be on or adjacent to '${destCity.name}' to establish a trade route")
+
+        manager.establish(originCity, destCity, unit)
     }
 
     // endregion

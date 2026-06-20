@@ -109,6 +109,7 @@ object PlayerViewProjector {
         redactSeenEnemyCityInteriors(projected, viewingCivId, visibility)
         redactBarbarianEncampments(projected, visibility)
         redactOtherCivSecrets(projected, viewingCivId)
+        redactTradeRoutes(projected, viewingCivId)
         redactGreatWorkPlacements(projected, viewingCivId, visibility)
         redactTileContents(projected, visibility, rememberedImprovements)
 
@@ -363,6 +364,33 @@ object PlayerViewProjector {
         //   tiles. It cannot simply be nulled (it is a non-null lateinit the client's setTransients
         //   requires) — fully hiding it would mean substituting a neutral placeholder terrain and is
         //   left for a follow-up to avoid corrupting the cloned map's structural invariants here.
+    }
+
+    /**
+     * BNW Phase 3 — Increment 5 (D5). International-Trade-Route connections are scrubbed so a player sees
+     * only routes they are entitled to: **their own routes fully; routes touching one of their own cities
+     * fully; purely-rival routes removed.** A rival↔rival route would otherwise leak the existence and
+     * relationship of two unseen cities.
+     *
+     * Keep a connection iff it is owned by the viewer OR its origin/destination is one of the viewer's
+     * cities. This reads ONLY serialized fields ([com.unciv.logic.trade.TradeRouteConnection] ids + the
+     * cloned civ/city ids) — the projector deliberately skips full `setTransients`, so
+     * `tradeRouteManager.gameInfo` is NOT set on the clone and we must not call any gameInfo-dependent
+     * helper here. Runs once per projection (the manager is GameInfo-level), so it lives here, not in the
+     * per-civ [scrubCivSecrets].
+     */
+    private fun redactTradeRoutes(projected: GameInfo, viewerId: String) {
+        val connections = projected.tradeRouteManager.connections
+        if (connections.isEmpty()) return
+
+        val myCityIds = projected.civilizations
+            .firstOrNull { it.civID == viewerId }
+            ?.cities?.mapTo(HashSet()) { it.id }
+            ?: HashSet()
+
+        connections.removeAll { c ->
+            !(c.ownerCivId == viewerId || c.originCityId in myCityIds || c.destinationCityId in myCityIds)
+        }
     }
 
     /**

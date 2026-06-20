@@ -742,6 +742,30 @@ sealed interface GameCommand {
 
     // endregion
 
+    // region Trade Routes
+
+    /**
+     * BNW Phase 3 — Increment 2. The acting civ's trade unit on tile ([unitX], [unitY]) establishes an
+     * *International Trade Route* from the civ's capital to the city centered on ([destCityX], [destCityY]).
+     *
+     * A dedicated command (not [GenericUnitAction]) because the destination city is a choice the
+     * `(x,y,actionType)` tuple can't carry — the same reason [BuildImprovement]/[SpreadReligion] are
+     * dedicated. The authority resolves the unit + destination city, validates capacity / route-type /
+     * connectivity / max-length (all `CommandException`), then records the route via the shared
+     * `TradeRouteManager.establish`. The route ORIGIN is the acting civ's capital (the "change home city"
+     * scaffolding is deferred — a documented fidelity gap), so it is not on the wire.
+     */
+    @Serializable
+    @SerialName("establishTradeRoute")
+    data class EstablishTradeRoute(
+        val unitX: Int,
+        val unitY: Int,
+        val destCityX: Int,
+        val destCityY: Int
+    ) : GameCommand
+
+    // endregion
+
     // region Great Works
 
     /**

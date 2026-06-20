@@ -915,6 +915,17 @@ class MapUnit : IsPartOfGameInfoSerialization {
             }
         }
 
+        // BNW Phase 3 — a parked trade unit's death plunders/cancels every route bound to it (Increment 4).
+        // removeRoutesForUnit is benign (returns empty) for non-trade units, so this is safe for all units.
+        val plunderedRoutes = civ.gameInfo.tradeRouteManager.removeRoutesForUnit(this.id)
+        for (route in plunderedRoutes) {
+            val destCity = civ.gameInfo.tradeRouteManager.getDestinationCity(route)
+            civ.addNotification(
+                "Your trade route to [${destCity?.name ?: "a lost city"}] was plundered!",
+                NotificationCategory.Trade, "OtherIcons/Trade"
+            )
+        }
+
         isDestroyed = true
     }
 

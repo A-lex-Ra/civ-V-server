@@ -42,6 +42,9 @@ class TurnManager(val civInfo: Civilization) {
 
         civInfo.civConstructions.startTurn()
         civInfo.attacksSinceTurnStart.clear()
+        // BNW Phase 3 — expire/renew this civ's International Trade Routes (authority-only, D4), after
+        // resources are refreshed so capacity is current. Runs per-owner per-turn.
+        civInfo.gameInfo.tradeRouteManager.processExpiryAndRenewal(civInfo)
         // BNW Phase 2a — recompute ideological public opinion (authority-only, D2) BEFORE stats, so
         // the dissident-unhappiness term is current when getHappinessBreakdown() reads it. Also count
         // down any post-switch anarchy (Increment 2); the [-100]% temporary uniques expire on their own.
@@ -314,6 +317,11 @@ class TurnManager(val civInfo: Civilization) {
 
         if (civInfo.cities.isNotEmpty() && civInfo.gameInfo.ruleset.technologies.isNotEmpty())
             civInfo.tech.endTurn(nextTurnStats.science.toInt())
+
+        // BNW Phase 3 — bank International-Trade-Route yields (authority-only, D4), right after the
+        // gold/science banking and SEPARATELY from CityStats. Owner-iteration only, so the dest-owner
+        // gold is never double-counted.
+        civInfo.gameInfo.tradeRouteManager.applyYieldsForOwner(civInfo)
 
         civInfo.religionManager.endTurn(nextTurnStats.faith.toInt())
         civInfo.totalFaithForContests += nextTurnStats.faith.toInt()

@@ -72,6 +72,9 @@ class TestGame(vararg addGlobalUniques: String, forUITesting: Boolean = false) {
         gameInfo.difficulty = "Prince"
         gameInfo.gameParameters.speed = Speed.DEFAULTFORSIMULATION
         gameInfo.setGlobalTransients()
+        // BNW Phase 3 — TestGame builds GameInfo without the full setTransients(), so wire the
+        // GameInfo-level trade-route registry's back-reference (its per-turn hook runs every nextTurn).
+        gameInfo.tradeRouteManager.setTransients(gameInfo)
 
         gameInfo.currentPlayerCiv = Civilization()  // Will be uninitialized, do not build on for tests
 

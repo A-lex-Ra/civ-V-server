@@ -83,7 +83,8 @@
 			"Comment [Can undertake a trade mission with City-State, giving a large sum of gold and [10] Influence]",
 			"Can undertake a trade mission with City-State, giving a large sum of gold and [10] Influence <for units without [[Caravansary] ability]> <hidden from users>",
 			"Can undertake a trade mission with City-State, giving a large sum of gold and [20] Influence <for units with [[Caravansary] ability]> <hidden from users>",
-			// TODO: Establish Trade Route (Route must run over land from one city to another.)
+			// BNW Phase 3 — International Trade Routes (land route from one city to another). UnitActionsTrade.
+			"Can establish trade routes between cities",
 			// TODO: Change Home City (After selecting a city and waiting a turn, allows different trade routes to be made.)
 			"[1] Movement <for [Caravans gain 50% extended range] Civilizations> <hidden from users>", // Caravans gain 50% extended range
 			"Unavailable <for [City-States] Civilizations> <hidden from users>",
@@ -111,7 +112,8 @@
 			"Comment [Can undertake a trade mission with City-State, giving a large sum of gold and [15] Influence]",
 			"Can undertake a trade mission with City-State, giving a large sum of gold and [15] Influence <for units without [[Harbor] ability]> <hidden from users>",
 			"Can undertake a trade mission with City-State, giving a large sum of gold and [30] Influence <for units with [[Harbor] ability]> <hidden from users>",
-			// TODO: Establish Trade Route with a different civ (Route must run over water from one coastal city to another.)
+			// BNW Phase 3 — International Trade Routes (sea route from one coastal city to another). UnitActionsTrade.
+			"Can establish trade routes between cities",
 			// TODO: Change Home City (After selecting a coastal city and waiting a turn, allows different trade routes to be made.)
 			"Unavailable <for [City-States] Civilizations> <hidden from users>",
 			"Costs [1] [Trade Route]",

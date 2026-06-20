@@ -478,6 +478,9 @@ class City : IsPartOfGameInfoSerialization, INamed {
 
         civ.cities = civ.cities.withoutItem(this)
 
+        // BNW Phase 3 — losing/razing a city cancels every International Trade Route touching it (Increment 4).
+        civ.gameInfo.tradeRouteManager.removeRoutesTouchingCity(this.id)
+
         if (getRuleset().tileImprovements.containsKey("City ruins"))
             getCenterTile().setImprovement("City ruins")
 

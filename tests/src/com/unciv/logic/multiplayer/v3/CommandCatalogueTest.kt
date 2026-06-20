@@ -661,4 +661,184 @@ class CommandCatalogueTest {
     }
 
     // endregion
+
+    // region EstablishTradeRoute (BNW Phase 3 — Increment 2)
+
+    /** Synthesize the `Trade Route` stockpile token the BNW ruleset would supply (G&K lacks it). */
+    private fun ensureTradeRouteResource(): com.unciv.models.ruleset.tile.TileResource {
+        testGame.ruleset.tileResources[com.unciv.logic.trade.TradeRouteManager.TRADE_ROUTE_RESOURCE]?.let { return it }
+        val resource = testGame.createResource("Stockpiled")
+        testGame.ruleset.tileResources.remove(resource.name)
+        resource.name = com.unciv.logic.trade.TradeRouteManager.TRADE_ROUTE_RESOURCE
+        testGame.ruleset.tileResources[com.unciv.logic.trade.TradeRouteManager.TRADE_ROUTE_RESOURCE] = resource
+        return resource
+    }
+
+    private fun addLandTradeUnit(owner: Civilization, tile: Tile): MapUnit {
+        val baseUnit = testGame.createBaseUnit(
+            "Civilian", "Costs [1] [Trade Route]", "Can establish trade routes between cities"
+        )
+        baseUnit.movement = 2
+        return testGame.addUnit(baseUnit.name, owner, tile)
+    }
+
+    @Test
+    fun establishTradeRouteRecordsTheRoute() {
+        val resource = ensureTradeRouteResource()
+        val capitalTile = testGame.tileMap[0, 0]
+        val capital = testGame.addCity(civInfo, capitalTile)
+        val destTile = testGame.tileMap[3, 0]
+        val dest = testGame.addCity(civInfo, destTile)
+        civInfo.gainStockpiledResource(resource, 1)
+        val unit = addLandTradeUnit(civInfo, destTile)
+
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.EstablishTradeRoute(destTile.position.x, destTile.position.y, destTile.position.x, destTile.position.y)
+        )
+
+        val manager = testGame.gameInfo.tradeRouteManager
+        assertEquals("A trade route must have been recorded", 1, manager.connections.size)
+        val route = manager.connections.first()
+        assertEquals("Origin must be the capital", capital.id, route.originCityId)
+        assertEquals("Destination must be the targeted city", dest.id, route.destinationCityId)
+        assertEquals(civInfo.civID, route.ownerCivId)
+        assertEquals("The parked unit must have spent its movement", 0f, unit.currentMovement, 0f)
+    }
+
+    @Test
+    fun establishInternationalTradeRouteFromAdjacentTile() {
+        val resource = ensureTradeRouteResource()
+        val capital = testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        val foreignCity = testGame.addCity(enemyCiv, testGame.tileMap[3, 0])
+        // Open borders so the land route may cross the foreign civ's territory to reach its city.
+        civInfo.diplomacyFunctions.makeCivilizationsMeet(enemyCiv)
+        civInfo.getDiplomacyManager(enemyCiv)!!.hasOpenBorders = true
+        civInfo.gainStockpiledResource(resource, 1)
+        // The engine forbids entering a FOREIGN city center, so park the unit on a land tile ADJACENT to it.
+        val dockTile = foreignCity.getCenterTile().neighbors.first { it.isLand && !it.isCityCenter() }
+        val unit = addLandTradeUnit(civInfo, dockTile)
+
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.EstablishTradeRoute(
+                dockTile.position.x, dockTile.position.y,
+                foreignCity.getCenterTile().position.x, foreignCity.getCenterTile().position.y
+            )
+        )
+
+        val manager = testGame.gameInfo.tradeRouteManager
+        assertEquals("One international route must have been recorded", 1, manager.connections.size)
+        val route = manager.connections.first()
+        assertEquals("Origin must be the capital", capital.id, route.originCityId)
+        assertEquals("Destination must be the foreign city", foreignCity.id, route.destinationCityId)
+        assertEquals(civInfo.civID, route.ownerCivId)
+        assertEquals("The parked unit must have spent its movement", 0f, unit.currentMovement, 0f)
+    }
+
+    @Test
+    fun establishTradeRouteWithNoCapacityIsRejectedAndStateUnchanged() {
+        ensureTradeRouteResource()
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        val destTile = testGame.tileMap[3, 0]
+        testGame.addCity(civInfo, destTile)
+        // No tokens granted -> capacity 0.
+        addLandTradeUnit(civInfo, destTile)
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.EstablishTradeRoute(destTile.position.x, destTile.position.y, destTile.position.x, destTile.position.y)
+            )
+        }
+        assertTrue("No route may exist after a rejected establish", testGame.gameInfo.tradeRouteManager.connections.isEmpty())
+    }
+
+    @Test
+    fun establishTradeRouteByNonOwnerIsRejected() {
+        val resource = ensureTradeRouteResource()
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        val destTile = testGame.tileMap[3, 0]
+        testGame.addCity(civInfo, destTile)
+        civInfo.gainStockpiledResource(resource, 1)
+        addLandTradeUnit(civInfo, destTile) // unit owned by civInfo, not enemyCiv
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, enemyCiv.civID,
+                GameCommand.EstablishTradeRoute(destTile.position.x, destTile.position.y, destTile.position.x, destTile.position.y)
+            )
+        }
+        assertTrue(testGame.gameInfo.tradeRouteManager.connections.isEmpty())
+    }
+
+    @Test
+    fun establishTradeRouteWithNonTradeUnitIsRejected() {
+        ensureTradeRouteResource()
+        testGame.addCity(civInfo, testGame.tileMap[0, 0])
+        val destTile = testGame.tileMap[3, 0]
+        testGame.addCity(civInfo, destTile)
+        // A plain Warrior is not a trade unit.
+        testGame.addUnit("Warrior", civInfo, destTile)
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.EstablishTradeRoute(destTile.position.x, destTile.position.y, destTile.position.x, destTile.position.y)
+            )
+        }
+        assertTrue(testGame.gameInfo.tradeRouteManager.connections.isEmpty())
+    }
+
+    @Test
+    fun establishTradeRouteToCapitalItselfIsRejected() {
+        val resource = ensureTradeRouteResource()
+        val capitalTile = testGame.tileMap[0, 0]
+        testGame.addCity(civInfo, capitalTile)
+        civInfo.gainStockpiledResource(resource, 1)
+        // The unit stands on the capital and targets the capital -> dest == origin.
+        addLandTradeUnit(civInfo, capitalTile)
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.EstablishTradeRoute(capitalTile.position.x, capitalTile.position.y, capitalTile.position.x, capitalTile.position.y)
+            )
+        }
+        assertTrue(testGame.gameInfo.tradeRouteManager.connections.isEmpty())
+    }
+
+    @Test
+    fun establishTradeRouteToUnknownDestinationIsRejected() {
+        val resource = ensureTradeRouteResource()
+        val capitalTile = testGame.tileMap[0, 0]
+        testGame.addCity(civInfo, capitalTile)
+        civInfo.gainStockpiledResource(resource, 1)
+        val unitTile = testGame.tileMap[1, 0]
+        addLandTradeUnit(civInfo, unitTile)
+        // (1,0) is not a city center -> requireCityCenterTile rejects it.
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.EstablishTradeRoute(unitTile.position.x, unitTile.position.y, unitTile.position.x, unitTile.position.y)
+            )
+        }
+        assertTrue(testGame.gameInfo.tradeRouteManager.connections.isEmpty())
+    }
+
+    @Test
+    fun establishTradeRouteCommandRoundTripsThroughKotlinx() {
+        val command: GameCommand = GameCommand.EstablishTradeRoute(1, 2, 3, 4)
+        val encoded = com.unciv.network.serialization.relayJson.encodeToString(GameCommand.serializer(), command)
+        val decoded = com.unciv.network.serialization.relayJson.decodeFromString(GameCommand.serializer(), encoded)
+        assertTrue(decoded is GameCommand.EstablishTradeRoute)
+        decoded as GameCommand.EstablishTradeRoute
+        assertEquals(1, decoded.unitX)
+        assertEquals(2, decoded.unitY)
+        assertEquals(3, decoded.destCityX)
+        assertEquals(4, decoded.destCityY)
+    }
+
+    // endregion
 }
