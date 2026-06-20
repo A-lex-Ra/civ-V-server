@@ -188,4 +188,75 @@ class SimultaneousBarrierTest {
         assertTrue("Both live humans must still receive their resolved-round views",
             playerA in recipients && playerB in recipients)
     }
+
+    @Test
+    fun aDisconnectedHumanBlocksTheRoundUntilItConnectsAndEnds() {
+        // The user's rule: the game must NOT advance while a rostered human is disconnected — whether it
+        // never joined or has dropped. The host (the only connected human at game start) is not forbidden
+        // from moving/ending, but it is NOT handed a fresh turn ("repeated actions") — the round simply
+        // does not resolve until the other (re)connects and ends. Modelled with B not connected.
+        val connected = mutableSetOf(playerA) // B is not connected (never joined, or dropped)
+        val out = mutableListOf<Pair<PlayerId, GameFrame>>()
+        val gatedSession = GameSession(
+            testGame.gameInfo,
+            mapOf(playerA to civA.civID, playerB to civB.civID),
+            isConnected = { it in connected }
+        ) { id, f -> out.add(id to f) }
+
+        val startTurns = testGame.gameInfo.turns
+
+        // A ends while B is disconnected: the turn must NOT advance and no resolved-round view is pushed.
+        gatedSession.onFrame(playerCommand(seq = 1, playerId = playerA, command = GameCommand.EndTurn))
+        assertEquals("Turn must not advance while a rostered human is disconnected",
+            startTurns, testGame.gameInfo.turns)
+        assertTrue("No resolved-round view while a human is disconnected",
+            out.none { it.second is GameFrame.PlayerView })
+
+        // Even repeated EndTurns from the lone connected human grant no fresh turn — no "repeated actions".
+        gatedSession.onFrame(playerCommand(seq = 2, playerId = playerA, command = GameCommand.EndTurn))
+        assertEquals("Repeated EndTurns must still not advance while a human is disconnected",
+            startTurns, testGame.gameInfo.turns)
+
+        // B (re)connects and ends → both alive humans are connected and done → the round resolves.
+        connected.add(playerB)
+        out.clear()
+        gatedSession.onFrame(playerCommand(seq = 1, playerId = playerB, command = GameCommand.EndTurn))
+        assertTrue("Round resolves once the disconnected human connects and ends",
+            testGame.gameInfo.turns > startTurns)
+        val recipients = out.filter { it.second is GameFrame.PlayerView }.map { it.first }.toSet()
+        assertTrue("Both humans must receive their resolved-round view",
+            playerA in recipients && playerB in recipients)
+    }
+
+    @Test
+    fun aDisconnectedThirdHumanBlocksEvenAfterTheOthersEnd() {
+        // "отключившийся блокирует": a third rostered human that is not connected holds the round even
+        // after the other two have ended — the game waits for it to (re)connect. This is the deliberate
+        // contrast with aDefeatedHumanDoesNotDeadlockTheBarrier (a DEFEATED third human does NOT block).
+        val thirdNation = testGame.ruleset.nations.values.filter { it.isMajorCiv }[2]
+        val civC = testGame.addCiv(thirdNation, isPlayer = true)
+        civC.playerType = PlayerType.Human
+        testGame.addUnit("Warrior", civC, testGame.tileMap[0, 2]) // keep C alive (else excluded as defeated)
+        val playerC: PlayerId = "player-C"
+
+        val connected = mutableSetOf(playerA, playerB) // C is NOT connected
+        val out = mutableListOf<Pair<PlayerId, GameFrame>>()
+        val gatedSession = GameSession(
+            testGame.gameInfo,
+            mapOf(playerA to civA.civID, playerB to civB.civID, playerC to civC.civID),
+            isConnected = { it in connected }
+        ) { id, f -> out.add(id to f) }
+
+        val startTurns = testGame.gameInfo.turns
+        gatedSession.onFrame(playerCommand(seq = 1, playerId = playerA, command = GameCommand.EndTurn))
+        gatedSession.onFrame(playerCommand(seq = 1, playerId = playerB, command = GameCommand.EndTurn))
+        assertEquals("Round must NOT advance while a rostered human is disconnected",
+            startTurns, testGame.gameInfo.turns)
+
+        // C connects and ends → all three connected and done → resolves.
+        connected.add(playerC)
+        gatedSession.onFrame(playerCommand(seq = 1, playerId = playerC, command = GameCommand.EndTurn))
+        assertTrue("Round resolves once the disconnected human connects and ends",
+            testGame.gameInfo.turns > startTurns)
+    }
 }

@@ -26,21 +26,22 @@ import io.ktor.server.websocket.WebSockets
 import com.unciv.network.serialization.relayJson
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.ServerSocket
 import java.util.concurrent.TimeUnit
-import kotlin.time.Duration.Companion.seconds
 
 /**
- * Regression for the live "Waiting for other players..." deadlock: the streaming barrier must resolve
- * a round once every **connected** human has ended, NOT every *rostered* human. A human civ set up in
- * the lobby whose UserId no client ever connects as (an unfilled slot) would otherwise keep the round
- * waiting forever. Drives the real V3GameManager host+joiner loop over an embedded relay, with an AI
- * civ present (so resolveRound runs full nextTurn AI automation), and asserts the two connected players
- * resolve the round despite the third (absent) rostered human.
+ * The streaming barrier's "wait for everyone" rule (the user's requirement): the game must NOT advance
+ * until **every** rostered human has connected and ended — "при отключении игрока не возможен advance
+ * turn ... должны ждать пока он переподключится". A rostered human whose UserId no client has connected
+ * as yet (an unfilled / not-yet-joined slot) therefore BLOCKS the round: the two connected players
+ * cannot advance the turn while it is absent. (A DEFEATED player, by contrast, does NOT block — that
+ * exception is covered at the session level in `SimultaneousBarrierTest`; the reconnect-then-resolve
+ * path likewise.) Drives the real V3GameManager host+joiner loop over an embedded relay, with an AI civ
+ * present, and asserts the round stays open while the third rostered human is absent.
  */
 @RunWith(GdxTestRunner::class)
 class AbsentHumanBarrierIntegrationTest {
@@ -50,7 +51,7 @@ class AbsentHumanBarrierIntegrationTest {
     private val absentUserId: UserId = "absent-user" // rostered human, but NO client ever connects as it
 
     @Test
-    fun absentRosteredHumanDoesNotDeadlockTheLiveBarrier() = runBlocking {
+    fun absentRosteredHumanBlocksTheLiveBarrier() = runBlocking {
         RulesetCache.loadRulesets(noMods = true)
         UncivGame.Current = UncivGame()
         UncivGame.Current.files = UncivFiles(Gdx.files)
@@ -91,19 +92,20 @@ class AbsentHumanBarrierIntegrationTest {
 
             val startTurn = game.turns
 
-            // Both CONNECTED humans end. The third rostered human ('absent-user') never connected and
-            // never will — the round must still resolve instead of hanging on "Waiting for players...".
+            // Both CONNECTED humans end. The third rostered human ('absent-user') has not connected, so
+            // the round must NOT advance — the game waits for it. Give any (erroneous) resolution ample
+            // time to happen, then assert it did not: the turn is unchanged and both players stay
+            // latched as "ended, waiting for others".
             hostManager.sendEndTurn()
             clientManager.sendEndTurn()
+            delay(2000)
 
-            withTimeout(15.seconds) {
-                while (game.turns <= startTurn || hostManager.localEndedTurn || clientManager.localEndedTurn)
-                    delay(50)
-            }
-            assertTrue("Round must resolve on the connected humans alone (turns ${game.turns} vs $startTurn)",
-                game.turns > startTurn)
-            assertTrue("Host latch must clear", !hostManager.localEndedTurn)
-            assertTrue("Joiner latch must clear", !clientManager.localEndedTurn)
+            assertEquals("Round must NOT advance while a rostered human is absent (turns ${game.turns} vs $startTurn)",
+                startTurn, game.turns)
+            assertTrue("Host must stay ended/waiting while the absent human is missing",
+                hostManager.localEndedTurn)
+            assertTrue("Joiner must stay ended/waiting while the absent human is missing",
+                clientManager.localEndedTurn)
         } finally {
             hostManager.close()
             clientManager.close()

@@ -85,7 +85,8 @@ class V3GameHost(
      * connection: `RelayTo(targetUserId = playerId, payload = frame)`. PlayerId == UserId, so the
      * `playerId` the session emits *is* the relay target. A caller-supplied [outbound] (the
      * host-as-client split sink) takes precedence over this default. [GameSession.isConnected] is fed
-     * the live relay-presence set so the barrier only gates on players that can still act.
+     * the live relay-presence set, so the barrier waits until every alive human is connected and has
+     * ended — a dropped or not-yet-joined human blocks the round until it (re)connects.
      */
     val session: GameSession = GameSession(
         gameInfo,
@@ -112,13 +113,14 @@ class V3GameHost(
                 markConnected(message.fromId)
                 session.onFrame(bindIdentity(message.fromId, message.payload))
             }
-            // Presence: keep the connected set live so the barrier waits only on players that can act.
+            // Presence: keep the connected set live. The barrier waits for every alive human to be
+            // connected AND ended, so dropping a player from this set makes the round wait for it.
             is RelayToClient.Welcome -> message.peers.forEach(::markConnected)
             is RelayToClient.PeerJoined -> markConnected(message.userId)
             is RelayToClient.PeerLeft -> {
                 synchronized(connectedPlayers) { connectedPlayers.remove(message.userId) }
-                // A peer dropping may be exactly who the round was still waiting on — re-check now so
-                // the survivors don't hang on "Waiting for other players...".
+                // A dropped player now BLOCKS the round (the game waits for it to reconnect and end).
+                // Clear its stale `ended` mark so it must end its turn afresh after reconnecting.
                 session.onPlayerDisconnected(message.userId)
             }
             is RelayToClient.Error -> Unit
