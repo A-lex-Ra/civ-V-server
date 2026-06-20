@@ -64,8 +64,11 @@ object TechnologyDescriptions {
 
         if (wonders.isNotEmpty()) {
             lineList += "{Wonders enabled}: "
-            for (wonder in wonders)
-                lineList += " • ${wonder.name.tr()} (${wonder.getShortDescription(uniqueInclusionFilter=technology::uniqueIsNotRequirementForThisTech)})\n"
+            for (wonder in wonders) {
+                // Mark whether each wonder is world-unique (World Wonder) or per-civ (National Wonder)
+                val wonderKind = if (wonder.isWonder) "World Wonder" else "National Wonder"
+                lineList += " • {$wonderKind}: ${wonder.name.tr()} (${wonder.getShortDescription(uniqueInclusionFilter=technology::uniqueIsNotRequirementForThisTech)})\n"
+            }
         }
 
         for (obj in getObsoletedObjects(name, ruleset, viewingCiv))

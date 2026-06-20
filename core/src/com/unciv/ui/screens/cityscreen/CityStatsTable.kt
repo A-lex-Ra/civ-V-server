@@ -415,7 +415,15 @@ class CityStatsTable(private val cityScreen: CityScreen) : Table() {
         private fun update(expanderIsOpen: Boolean?) {
             clear()
             val selected = BaseScreen.skin.getColor("selection")
-            for (stat in Stat.entries) {
+            // The city screen lists Food before Production (gameplay priority);
+            // the canonical Stat order has Production first, so swap just those two here.
+            val orderedStats = Stat.entries.toMutableList().apply {
+                val foodIndex = indexOf(Stat.Food)
+                val productionIndex = indexOf(Stat.Production)
+                this[foodIndex] = Stat.Production
+                this[productionIndex] = Stat.Food
+            }
+            for (stat in orderedStats) {
                 val amount = city.cityStats.currentCityStats[stat]
                 if (stat == Stat.Faith && !city.civ.gameInfo.isReligionEnabled()) continue
                 val icon = Table()

@@ -18,6 +18,7 @@ import com.unciv.models.ruleset.Building
 import com.unciv.models.ruleset.IConstruction
 import com.unciv.models.ruleset.INonPerpetualConstruction
 import com.unciv.models.ruleset.PerpetualConstruction
+import com.unciv.models.ruleset.PerpetualStatConversion
 import com.unciv.models.ruleset.RejectionReason
 import com.unciv.models.ruleset.RejectionReasonType
 import com.unciv.models.ruleset.unique.UniqueType
@@ -577,6 +578,18 @@ class CityConstructionsTable(private val cityScreen: CityScreen) {
                     .width(cityScreen.stage.width/4).fillX().left().padTop(2f)
             }
         }
+
+        // On desktop, show the construction's full details ("meta") on hover so the player
+        // doesn't have to select it first. Suppressed automatically on touch-only devices.
+        val hoverDescription = when (construction) {
+            is BaseUnit -> construction.getDescription(cityScreen.city)
+            is Building -> construction.getDescription(cityScreen.city, true)
+            is PerpetualStatConversion -> construction.description
+                .replace("[rate]", "[${construction.getConversionRate(cityScreen.city)}]").tr()
+            is PerpetualConstruction -> construction.description.tr()
+            else -> ""
+        }
+        pickConstructionButton.addTooltip(hoverDescription, size = 22f)
 
         pickConstructionButton.onClick {
             if (cityScreen.selectedConstruction == construction) {

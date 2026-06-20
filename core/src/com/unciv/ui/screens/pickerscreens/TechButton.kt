@@ -15,6 +15,7 @@ import com.unciv.ui.components.extensions.brighten
 import com.unciv.ui.components.extensions.center
 import com.unciv.ui.components.extensions.centerY
 import com.unciv.ui.components.extensions.darken
+import com.unciv.ui.components.UncivTooltip.Companion.addTooltip
 import com.unciv.ui.components.extensions.setFontSize
 import com.unciv.ui.components.extensions.toLabel
 
@@ -91,6 +92,12 @@ class TechButton(
         backgroundImage.center(this)
 
         pack()
+
+        // On desktop, show the technology's details ("meta") on hover - what it unlocks,
+        // including which enabled wonders are World Wonders. Suppressed on touch-only devices.
+        val tech = techManager.civInfo.gameInfo.ruleset.technologies[techName]
+        if (tech != null)
+            addTooltip(TechnologyDescriptions.getDescription(tech, techManager.civInfo), size = 20f)
     }
 
     fun setButtonColor(color: Color) {
