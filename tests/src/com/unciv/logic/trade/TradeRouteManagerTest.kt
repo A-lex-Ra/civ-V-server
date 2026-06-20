@@ -55,7 +55,7 @@ class TradeRouteManagerTest {
     private fun grantTokens(target: Civilization, n: Int) =
         target.gainStockpiledResource(tradeRouteResource, n)
 
-    /** A land trade unit (Caravan-equivalent) standing on [city]'s center. */
+    /** A land trade unit (Caravan-equivalent) standing on [city]'s center (its route origin). */
     private fun addLandTradeUnit(owner: Civilization, city: City): MapUnit {
         val baseUnit = testGame.createBaseUnit(
             "Civilian", "Costs [1] [Trade Route]", "Can establish trade routes between cities"
@@ -118,17 +118,18 @@ class TradeRouteManagerTest {
 
     @Test
     fun `establish records a route, parks the unit, and does not spend a token`() {
-        val capital = testGame.addCity(civ, testGame.getTile(0, 0))
+        val origin = testGame.addCity(civ, testGame.getTile(0, 0))
         val dest = testGame.addCity(civ, testGame.getTile(3, 0))
         grantTokens(civ, 1)
-        val unit = addLandTradeUnit(civ, dest)
+        // New ITR model: the trade unit stands ON its own ORIGIN city center.
+        val unit = addLandTradeUnit(civ, origin)
 
         val tokensBefore = manager.getMaxCapacity(civ)
-        manager.establish(capital, dest, unit)
+        manager.establish(origin, dest, unit)
 
         assertEquals("Exactly one route recorded", 1, manager.connections.size)
         val route = manager.connections.first()
-        assertEquals(capital.id, route.originCityId)
+        assertEquals(origin.id, route.originCityId)
         assertEquals(dest.id, route.destinationCityId)
         assertEquals(civ.civID, route.ownerCivId)
         assertEquals(TradeRouteType.Land, route.type)
@@ -199,7 +200,7 @@ class TradeRouteManagerTest {
         val capital = testGame.addCity(civ, testGame.getTile(0, 0))
         val dest = testGame.addCity(civ, testGame.getTile(3, 0))
         grantTokens(civ, 1)
-        val unit = addLandTradeUnit(civ, dest)
+        val unit = addLandTradeUnit(civ, capital)
         val route = manager.establish(capital, dest, unit)
         // Push the clock well past the (speed-scaled) duration.
         route.establishedTurn = -1000
@@ -216,7 +217,7 @@ class TradeRouteManagerTest {
         val capital = testGame.addCity(civ, testGame.getTile(0, 0))
         val dest = testGame.addCity(civ, testGame.getTile(3, 0))
         grantTokens(civ, 1)
-        val unit = addLandTradeUnit(civ, dest)
+        val unit = addLandTradeUnit(civ, capital)
         val route = manager.establish(capital, dest, unit)
         route.establishedTurn = -1000
         testGame.gameInfo.turns = 1000
@@ -235,7 +236,7 @@ class TradeRouteManagerTest {
         val capital = testGame.addCity(civ, testGame.getTile(0, 0))
         val dest = testGame.addCity(civ, testGame.getTile(3, 0))
         grantTokens(civ, 1)
-        val unit = addLandTradeUnit(civ, dest)
+        val unit = addLandTradeUnit(civ, capital)
         manager.establish(capital, dest, unit)
         assertEquals(1, manager.connections.size)
 
@@ -249,7 +250,7 @@ class TradeRouteManagerTest {
         val capital = testGame.addCity(civ, testGame.getTile(0, 0))
         val dest = testGame.addCity(civ, testGame.getTile(3, 0))
         grantTokens(civ, 1)
-        val unit = addLandTradeUnit(civ, dest)
+        val unit = addLandTradeUnit(civ, capital)
         manager.establish(capital, dest, unit)
         assertEquals(1, manager.connections.size)
 

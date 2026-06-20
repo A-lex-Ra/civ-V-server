@@ -90,6 +90,7 @@ object UnitActions {
         UnitActionType.HurryBuilding to UnitActionsGreatPerson::getHurryBuildingActions,
         UnitActionType.ConductTradeMission to UnitActionsGreatPerson::getConductTradeMissionActions,
         UnitActionType.EstablishTradeRoute to UnitActionsTrade::getEstablishTradeRouteActions,
+        UnitActionType.MoveTradeUnit to UnitActionsTrade::getMoveToCityActions,
         UnitActionType.FoundReligion to UnitActionsReligion::getFoundReligionActions,
         UnitActionType.EnhanceReligion to UnitActionsReligion::getEnhanceReligionActions,
         UnitActionType.CreateImprovement to UnitActionsFromUniques::getImprovementCreationActions,

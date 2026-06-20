@@ -546,6 +546,7 @@ class City : IsPartOfGameInfoSerialization, INamed {
     fun canPlaceNewUnit(construction: BaseUnit): Boolean {
         val tile = getCenterTile()
         return when {
+            construction.isTradeUnit() -> tile.tradeUnit == null
             construction.isCivilian() -> tile.civilianUnit == null
             construction.movesLikeAirUnits -> return true // Dealt with in MapUnit.getRejectionReasons
             else -> tile.militaryUnit == null

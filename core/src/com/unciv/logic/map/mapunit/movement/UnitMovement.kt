@@ -712,14 +712,20 @@ class UnitMovement(val unit: MapUnit) {
             && !unit.getOtherEscortUnit()!!.movement.canMoveTo(tile, assumeCanPassThrough, allowSwap, includeOtherEscortUnit = false))
             return CannotMoveToReason.EscortCannotMove
 
-        val tileIsEmpty = if (unit.isCivilian())
-            (tile.civilianUnit == null || (allowSwap && tile.civilianUnit!!.owner == unit.owner))
-                && (tile.militaryUnit == null || tile.militaryUnit!!.owner == unit.owner)
-        else
-        // can skip checking for airUnit since not a city
-            (tile.militaryUnit == null || (allowSwap && tile.militaryUnit!!.owner == unit.owner))
-                && (tile.civilianUnit == null || tile.civilianUnit!!.owner == unit.owner || unit.civ.isAtWarWith(tile.civilianUnit!!.civ))
-        
+        val tileIsEmpty = when {
+            // BNW Phase 3 — ITR: a trade unit only contends for the trade slot, so it freely shares a tile
+            // with any non-trade units; two trade units may not share a tile.
+            unit.isTradeUnit() ->
+                tile.tradeUnit == null || (allowSwap && tile.tradeUnit!!.owner == unit.owner)
+            unit.isCivilian() ->
+                (tile.civilianUnit == null || (allowSwap && tile.civilianUnit!!.owner == unit.owner))
+                    && (tile.militaryUnit == null || tile.militaryUnit!!.owner == unit.owner)
+            else ->
+                // can skip checking for airUnit since not a city
+                (tile.militaryUnit == null || (allowSwap && tile.militaryUnit!!.owner == unit.owner))
+                    && (tile.civilianUnit == null || tile.civilianUnit!!.owner == unit.owner || unit.civ.isAtWarWith(tile.civilianUnit!!.civ))
+        }
+
         if (!tileIsEmpty) return CannotMoveToReason.TileIsNotEmpty
         
         return null

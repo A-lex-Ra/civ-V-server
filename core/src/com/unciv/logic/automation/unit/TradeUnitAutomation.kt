@@ -3,46 +3,77 @@ package com.unciv.logic.automation.unit
 import com.unciv.logic.city.City
 import com.unciv.logic.map.mapunit.MapUnit
 import com.unciv.logic.trade.TradeRouteConnection
+import com.unciv.logic.trade.TradeRouteManager
 import com.unciv.logic.trade.TradeRouteType
 import com.unciv.logic.trade.TradeRouteYields
-import com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsTrade
 
 /**
- * BNW Phase 3 — Increment 6. The authority's AI drives idle trade units (Caravans / Cargo Ships) to
- * establish high-value International Trade Routes. Authority-only (the AI runs on the authority) so it
- * mutates canonical state through the shared establish path with NO new command.
+ * BNW Phase 3 — International Trade Routes. The authority's AI drives idle trade units (Caravans / Cargo
+ * Ships) to establish high-value routes. Authority-only (the AI runs on the authority) so it mutates
+ * canonical state through the shared establish path with NO new command.
  *
- * Picks the highest-value reachable target by [TradeRouteYields] (international/high-tech preferred), heads
- * the unit there, and — once standing ON its own destination city center or ADJACENT to a foreign one (the
- * engine forbids entering a foreign city center, so the unit "docks" next to it) — records the route via the
- * shared `TradeRouteManager.establish`, the same record path the authority's CommandExecutor uses.
+ * New ITR model: a route must originate at the unit's OWN city center. So the AI:
+ *  - if the unit is on one of its own city centers, picks the best-yield reachable destination by
+ *    [TradeRouteYields] (international/high-tech preferred) and records the route via the shared
+ *    [TradeRouteManager.establish];
+ *  - if no destination is reachable from here but another of the civ's cities can reach one, relocates
+ *    toward that city; and
+ *  - if the unit is NOT on an own city center, heads toward the nearest own city.
  */
 object TradeUnitAutomation {
 
     fun automateTradeUnit(unit: MapUnit) {
         val civ = unit.civ
         val manager = civ.gameInfo.tradeRouteManager
-        val originCity = civ.getCapital() ?: return
+        if (civ.cities.isEmpty()) return
         val type = if (unit.baseUnit.isLandUnit) TradeRouteType.Land else TradeRouteType.Sea
-        val maxLength = UnitActionsTrade.maxRouteLength(unit)
+        val maxLength = TradeRouteManager.maxRouteLength(unit)
 
-        // Cities this civ already routes TO (don't pile multiple routes onto one destination).
+        val currentCity = unit.currentTile.takeIf { it.isCityCenter() }?.getCity()
+            ?.takeIf { it.civ == civ }
+
+        if (currentCity != null) {
+            // On an own city center: try to establish the best route from here.
+            val best = bestDestinationFrom(manager, currentCity, type, maxLength, unit)
+            if (best != null) {
+                if (manager.usedCapacity(civ.civID) < manager.getMaxCapacity(civ))
+                    manager.establish(currentCity, best, unit)
+                return
+            }
+            // Nothing reachable from here: if another of the civ's cities can reach a destination, relocate
+            // the unit toward it (an instant move would consume the turn, but the AI uses normal movement).
+            val betterOrigin = civ.cities.firstOrNull {
+                it.id != currentCity.id && bestDestinationFrom(manager, it, type, maxLength, unit) != null
+            }
+            if (betterOrigin != null && unit.movement.canReach(betterOrigin.getCenterTile()))
+                unit.movement.headTowards(betterOrigin.getCenterTile())
+            return
+        }
+
+        // Not on an own city center: head toward the nearest own city center we can reach.
+        val nearest = civ.cities
+            .filter { unit.movement.canReach(it.getCenterTile()) }
+            .minByOrNull { unit.currentTile.aerialDistanceTo(it.getCenterTile()) }
+            ?: return
+        unit.movement.headTowards(nearest.getCenterTile())
+    }
+
+    /**
+     * The highest-yield reachable destination for a route of [type] from [originCity] within [maxLength],
+     * scored by [TradeRouteYields.scoreYields]; null if none reachable. Skips the origin itself and any
+     * city this civ already routes to.
+     */
+    private fun bestDestinationFrom(
+        manager: TradeRouteManager, originCity: City, type: TradeRouteType, maxLength: Int, unit: MapUnit
+    ): City? {
+        val civ = unit.civ
         val existingDestinations = manager.getRoutesEstablishedBy(civ.civID)
             .mapTo(HashSet()) { it.destinationCityId }
 
-        // Candidate destinations: any known/own city (other than the origin), not already a destination,
-        // that a route of this type connects to within range. Pre-filter by aerial distance before BFS so
-        // we don't run a BFS for obviously-too-far cities.
-        val candidateCities = (civ.cities.asSequence() + civ.getKnownCivs().flatMap { it.cities.asSequence() })
-            .filter { it.id != originCity.id && it.id !in existingDestinations }
-            .filter { originCity.getCenterTile().aerialDistanceTo(it.getCenterTile()) <= maxLength }
-            .distinctBy { it.id }
-            .toList()
-
-        // Score each reachable candidate with the same yields the route would produce.
         var bestCity: City? = null
         var bestScore = Int.MIN_VALUE
-        for (city in candidateCities) {
+        for (city in civ.gameInfo.getCities()) {
+            if (city.id == originCity.id || city.id in existingDestinations) continue
             val length = manager.computeRoute(originCity, city, type) ?: continue
             if (length > maxLength) continue
             val provisional = TradeRouteConnection().apply {
@@ -60,36 +91,6 @@ object TradeUnitAutomation {
                 bestCity = city
             }
         }
-
-        val target = bestCity ?: return
-        val targetTile = target.getCenterTile()
-
-        if (unit.currentTile.aerialDistanceTo(targetTile) <= 1) {
-            // Already on (own city, distance 0) or adjacent to (foreign city, distance 1) the target.
-            establishIfPossible(manager, originCity, target, type, maxLength, unit)
-        } else if (unit.movement.canReach(targetTile)) {
-            // headTowards moves as close as possible even when the center itself is unenterable (a
-            // foreign city), so the unit ends up parked on a neighbouring tile.
-            unit.movement.headTowards(targetTile)
-            if (unit.currentTile.aerialDistanceTo(targetTile) <= 1)
-                establishIfPossible(manager, originCity, target, type, maxLength, unit)
-        }
-    }
-
-    /**
-     * Record a route to [target] iff the gates still hold after movement (capacity free, the route of
-     * [type] still connects within [maxLength]). Re-checked here to guard against races with other
-     * authority-side establishes this turn. The AI runs on the authority, so it establishes directly via
-     * the shared [com.unciv.logic.trade.TradeRouteManager.establish] — no command is emitted.
-     */
-    private fun establishIfPossible(
-        manager: com.unciv.logic.trade.TradeRouteManager,
-        originCity: City, target: City, type: TradeRouteType, maxLength: Int, unit: MapUnit
-    ) {
-        val civ = unit.civ
-        if (manager.usedCapacity(civ.civID) >= manager.getMaxCapacity(civ)) return
-        val length = manager.computeRoute(originCity, target, type) ?: return
-        if (length > maxLength) return
-        manager.establish(originCity, target, unit)
+        return bestCity
     }
 }

@@ -114,6 +114,7 @@ class CommandExecutor {
             is GameCommand.RemoveHeresy -> executeRemoveHeresy(gameInfo, playerCivId, command)
             is GameCommand.ResolveEvent -> executeResolveEvent(gameInfo, playerCivId, command)
             is GameCommand.EstablishTradeRoute -> executeEstablishTradeRoute(gameInfo, playerCivId, command)
+            is GameCommand.MoveTradeUnitToCity -> executeMoveTradeUnitToCity(gameInfo, playerCivId, command)
             is GameCommand.MoveGreatWork -> executeMoveGreatWork(gameInfo, playerCivId, command)
             is GameCommand.ProposeResolution -> executeProposeResolution(gameInfo, playerCivId, command)
             is GameCommand.CastCongressVote -> executeCastCongressVote(gameInfo, playerCivId, command)
@@ -1386,31 +1387,32 @@ class CommandExecutor {
     // region trade routes
 
     /**
-     * BNW Phase 3 — Increment 2: the acting civ's trade unit establishes an International Trade Route from
-     * its capital to the destination city. Mirrors [executeBuildImprovement]/[executeSpreadReligion] in
-     * shape: resolve the subject, validate every gate (each → [CommandException]), then apply via the
+     * BNW Phase 3 — International Trade Routes: the acting civ's trade unit establishes a route from the
+     * city it is standing ON to the destination city. Mirrors [executeBuildImprovement]/[executeSpreadReligion]
+     * in shape: resolve the subject, validate every gate (each → [CommandException]), then apply via the
      * shared [com.unciv.logic.trade.TradeRouteManager.establish].
      *
      * Gates (all reject without mutating state):
      *  - the acting civ owns a unit on the unit tile, and it is a trade unit (D6 — by data, not by name);
-     *  - the acting civ has a capital (the route's origin);
+     *  - the unit stands ON one of the acting civ's OWN city centers — that city is the route's origin;
      *  - the destination is a real city center distinct from the origin;
      *  - capacity is free (`usedCapacity < getMaxCapacity` — the `Trade Route` token count, Venice doubled);
      *  - a route of the unit's type (Land for a Caravan, Sea for a Cargo Ship) connects, within length budget;
-     *  - the engine action is actually available right now (the same getter the UI/AI use).
+     *  - the unit still has movement (the same gate the UI/AI use).
      */
     private fun executeEstablishTradeRoute(gameInfo: GameInfo, playerCivId: String, command: GameCommand.EstablishTradeRoute) {
         val actingCiv = requireCiv(gameInfo, playerCivId)
         val unitTile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
-        val unit = requireUnitOnTile(unitTile, actingCiv, command.unitX, command.unitY)
+        // Resolve the TRADE unit specifically: a trade unit may share its city-center tile with a military /
+        // civilian unit, so we must not take the first unit by Tile.getUnits() ordering.
+        val unit = requireTradeUnitOnTile(unitTile, actingCiv, command.unitX, command.unitY)
         val destCityTile = requireCityCenterTile(gameInfo, command.destCityX, command.destCityY)
         val destCity = destCityTile.getCity()!!
 
-        if (!com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsTrade.isTradeUnit(unit))
-            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) is not a trade unit")
-
-        val originCity = actingCiv.getCapital()
-            ?: throw CommandException("'$playerCivId' has no capital to originate a trade route from")
+        // The origin is the unit's CURRENT city: it must be standing on one of the acting civ's own city centers.
+        if (!unitTile.isCityCenter() || unitTile.getCity()?.civ != actingCiv)
+            throw CommandException("Unit at (${command.unitX}, ${command.unitY}) must stand on its own city center to establish a trade route")
+        val originCity = unitTile.getCity()!!
         if (destCity.id == originCity.id)
             throw CommandException("A trade route's destination must differ from its origin")
 
@@ -1421,22 +1423,45 @@ class CommandExecutor {
         val type = if (unit.baseUnit.isLandUnit)
             com.unciv.logic.trade.TradeRouteType.Land else com.unciv.logic.trade.TradeRouteType.Sea
         val length = manager.computeRoute(originCity, destCity, type)
-            ?: throw CommandException("No ${type} trade route connects the capital to '${destCity.name}'")
-        if (length > com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsTrade.maxRouteLength(unit))
+            ?: throw CommandException("No ${type} trade route connects '${originCity.name}' to '${destCity.name}'")
+        if (length > com.unciv.logic.trade.TradeRouteManager.maxRouteLength(unit))
             throw CommandException("'${destCity.name}' is beyond the trade unit's range ($length tiles)")
 
         // The unit must still have movement to establish (the same gate the UI/AI use).
         if (!unit.hasMovement())
             throw CommandException("Unit at (${command.unitX}, ${command.unitY}) has no movement left to establish a trade route")
 
-        // The unit must be ON its own destination city center (distance 0) OR ADJACENT to it (distance 1):
-        // the engine forbids entering a FOREIGN city center, so an international route is established by
-        // "docking" on a tile next to the destination. Validate against THIS command's destination — the
-        // UI getter picks its own best destination, which need not match the wire command.
-        if (unitTile.aerialDistanceTo(destCityTile) > 1)
-            throw CommandException("Unit must be on or adjacent to '${destCity.name}' to establish a trade route")
-
         manager.establish(originCity, destCity, unit)
+    }
+
+    /**
+     * BNW Phase 3 — International Trade Routes: the acting civ instantly relocates its trade unit to one of
+     * its own cities, spending the unit's whole turn. Mirrors [executeEstablishTradeRoute] in shape.
+     *
+     * Gates (all reject without mutating state):
+     *  - the acting civ owns a trade unit on the unit tile;
+     *  - the destination is the acting civ's OWN city center, holding no other trade unit, and differs from
+     *    the unit's current tile.
+     */
+    private fun executeMoveTradeUnitToCity(gameInfo: GameInfo, playerCivId: String, command: GameCommand.MoveTradeUnitToCity) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val unitTile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        // Resolve the TRADE unit specifically (it may share its tile with non-trade units).
+        val unit = requireTradeUnitOnTile(unitTile, actingCiv, command.unitX, command.unitY)
+
+        val destTile = requireCityCenterTile(gameInfo, command.destCityX, command.destCityY)
+        val destCity = destTile.getCity()!!
+        if (destCity.civ.civID != actingCiv.civID)
+            throw CommandException("City '${destCity.name}' is not owned by '$playerCivId'")
+        if (destTile == unitTile)
+            throw CommandException("The trade unit is already at '${destCity.name}'")
+        if (destTile.tradeUnit != null)
+            throw CommandException("City '${destCity.name}' already holds a trade unit")
+
+        unit.removeFromTile()
+        unit.putInTile(destTile)
+        unit.currentMovement = 0f
+        unit.action = null
     }
 
     // endregion
@@ -1652,6 +1677,14 @@ class CommandExecutor {
     private fun requireUnitOnTile(tile: Tile, actingCiv: Civilization, x: Int, y: Int): MapUnit =
         tile.getUnits().firstOrNull { it.owner == actingCiv.civID }
             ?: throw CommandException("No unit owned by '${actingCiv.civID}' at tile ($x, $y)")
+
+    /**
+     * The trade unit on [tile] owned by [actingCiv]; throws cleanly if none. A trade unit may share its tile
+     * with non-trade units, so this resolves the trade slot specifically rather than the first unit.
+     */
+    private fun requireTradeUnitOnTile(tile: Tile, actingCiv: Civilization, x: Int, y: Int): MapUnit =
+        tile.getUnits().firstOrNull { it.owner == actingCiv.civID && it.isTradeUnit() }
+            ?: throw CommandException("No trade unit owned by '${actingCiv.civID}' at tile ($x, $y)")
 
     /** The tile at ([x], [y]) which must be a city center (of any civ). */
     private fun requireCityCenterTile(gameInfo: GameInfo, x: Int, y: Int): Tile {

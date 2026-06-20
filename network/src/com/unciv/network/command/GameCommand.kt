@@ -745,19 +745,40 @@ sealed interface GameCommand {
     // region Trade Routes
 
     /**
-     * BNW Phase 3 — Increment 2. The acting civ's trade unit on tile ([unitX], [unitY]) establishes an
-     * *International Trade Route* from the civ's capital to the city centered on ([destCityX], [destCityY]).
+     * BNW Phase 3 — International Trade Routes. The acting civ's trade unit on tile ([unitX], [unitY])
+     * establishes an *International Trade Route* to the city centered on ([destCityX], [destCityY]).
      *
      * A dedicated command (not [GenericUnitAction]) because the destination city is a choice the
      * `(x,y,actionType)` tuple can't carry — the same reason [BuildImprovement]/[SpreadReligion] are
-     * dedicated. The authority resolves the unit + destination city, validates capacity / route-type /
+     * dedicated. The route ORIGIN is the unit's CURRENT city: the unit must be standing ON one of the acting
+     * civ's own city centers, and that city is the origin (resolved on the authority, so it is not on the
+     * wire). The authority resolves the unit + destination city, validates origin / capacity / route-type /
      * connectivity / max-length (all `CommandException`), then records the route via the shared
-     * `TradeRouteManager.establish`. The route ORIGIN is the acting civ's capital (the "change home city"
-     * scaffolding is deferred — a documented fidelity gap), so it is not on the wire.
+     * `TradeRouteManager.establish`.
      */
     @Serializable
     @SerialName("establishTradeRoute")
     data class EstablishTradeRoute(
+        val unitX: Int,
+        val unitY: Int,
+        val destCityX: Int,
+        val destCityY: Int
+    ) : GameCommand
+
+    /**
+     * BNW Phase 3 — International Trade Routes. The acting civ instantly relocates its trade unit on tile
+     * ([unitX], [unitY]) to its own city centered on ([destCityX], [destCityY]); the move consumes the unit's
+     * whole turn.
+     *
+     * A dedicated command (not [GenericUnitAction]) because the destination city is a choice the
+     * `(x,y,actionType)` tuple can't carry. The authority resolves the trade unit + destination city,
+     * validates that the destination is the acting civ's own city center, holds no other trade unit, and
+     * differs from the current tile (all `CommandException`), then relocates via
+     * `MapUnit.removeFromTile()` + `putInTile()` and spends the unit's movement.
+     */
+    @Serializable
+    @SerialName("moveTradeUnitToCity")
+    data class MoveTradeUnitToCity(
         val unitX: Int,
         val unitY: Int,
         val destCityX: Int,

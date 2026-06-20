@@ -200,6 +200,8 @@ enum class UnitActionType(
         { ImageGetter.getUnitActionPortrait("ConductTradeMission") }, UncivSound.Chimes),
     EstablishTradeRoute("Establish Trade Route",
         { ImageGetter.getUnitActionPortrait("ConductTradeMission") }, UncivSound.Chimes),
+    MoveTradeUnit("Move to City",
+        { ImageGetter.getUnitActionPortrait("Swap") }, UncivSound.Silent),
     FoundReligion("Found a Religion",
         { ImageGetter.getUnitActionPortrait("FoundReligion") }, UncivSound.Choir),
     TriggerUnique("Trigger unique",

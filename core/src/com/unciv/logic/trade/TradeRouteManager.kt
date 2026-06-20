@@ -281,6 +281,27 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
 
         /** Base duration of a trade route before expiry/renewal, in standard-speed turns. */
         const val ROUTE_DURATION_TURNS = 30
+
+        /** Land tile budget for a Caravan route; Sea is longer for a Cargo Ship. Extended by data uniques. */
+        const val BASE_LAND_ROUTE_LENGTH = 12
+        const val BASE_SEA_ROUTE_LENGTH = 20
+
+        /**
+         * Route length budget for [unit] by type, extended by its bonus-range uniques (read by data). Lives
+         * here (logic layer) so both the UI ([com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsTrade])
+         * and the authority ([com.unciv.logic.multiplayer.v3.command.CommandExecutor]) can call it without a
+         * ui→logic or logic→ui cross-layer dependency.
+         *
+         * Caravans / Cargo Ships gain extra range via a "[n] Movement" range unique on BNW data; we read the
+         * unit's current movement as a proxy bonus so range scales with the data-driven extended range (e.g.
+         * Persia's "Caravans gain 50% extended range" adds movement → adds budget).
+         */
+        @Readonly
+        fun maxRouteLength(unit: MapUnit): Int {
+            val base = if (unit.baseUnit.isLandUnit) BASE_LAND_ROUTE_LENGTH else BASE_SEA_ROUTE_LENGTH
+            val movementBonus = (unit.baseUnit.movement - 2).coerceAtLeast(0)
+            return base + movementBonus * 2
+        }
     }
 
     /** [ROUTE_DURATION_TURNS] scaled by the game speed, the same accessor other durations use. */

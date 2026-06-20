@@ -11,7 +11,6 @@ import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.ui.screens.worldscreen.unit.actions.UnitActionModifiers
 import com.unciv.ui.screens.worldscreen.unit.actions.UnitActionModifiers.canUse
 import com.unciv.ui.screens.worldscreen.unit.actions.UnitActions
-import com.unciv.ui.screens.worldscreen.unit.actions.UnitActionsTrade
 import yairm210.purity.annotations.Readonly
 import com.unciv.logic.automation.Timers.Companion.timeThis
 
@@ -43,7 +42,7 @@ object CivilianUnitAutomation {
         // BNW Phase 3 — Increment 6: an idle trade unit (Caravan / Cargo Ship) that is not already bound
         // to a route and has free trade-route capacity heads to its best target and establishes a route
         // (authority-only — the AI runs on the authority, no new command).
-        if (UnitActionsTrade.isTradeUnit(unit)) {
+        if (unit.isTradeUnit()) {
             val manager = unit.civ.gameInfo.tradeRouteManager
             val alreadyBound = manager.getRoutesEstablishedBy(unit.civ.civID).any { it.unitId == unit.id }
             if (!alreadyBound && manager.usedCapacity(unit.civ.civID) < manager.getMaxCapacity(unit.civ))

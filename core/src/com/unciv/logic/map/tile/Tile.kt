@@ -44,6 +44,10 @@ class Tile : IsPartOfGameInfoSerialization {
     //region Serialized fields
     var militaryUnit: MapUnit? = null
     var civilianUnit: MapUnit? = null
+    /** BNW Phase 3 — ITR: a third unit slot, parallel to [militaryUnit]/[civilianUnit], holding a trade
+     * unit (Caravan / Cargo Ship). A trade unit may share a tile with any non-trade units, but two trade
+     * units may not share a tile. Defaults to null so old saves deserialize cleanly. */
+    var tradeUnit: MapUnit? = null
     var airUnits = ArrayList<MapUnit>(0)
 
     var position = HexCoord()
@@ -231,6 +235,7 @@ class Tile : IsPartOfGameInfoSerialization {
         if (addUnits) {
             if (militaryUnit != null) toReturn.militaryUnit = militaryUnit!!.clone()
             if (civilianUnit != null) toReturn.civilianUnit = civilianUnit!!.clone()
+            if (tradeUnit != null) toReturn.tradeUnit = tradeUnit!!.clone()
             toReturn.airUnits = ArrayList(airUnits.map { it.clone() })
         }
         toReturn.position = position
@@ -268,16 +273,17 @@ class Tile : IsPartOfGameInfoSerialization {
     }
     @Readonly fun isHill() = getHillTerrain() != null
 
-    /** Returns military, civilian and air units in tile */
+    /** Returns military, civilian, trade and air units in tile */
     @Readonly
     fun getUnits(): Sequence<MapUnit> {
         // common case - do not allocate memory for a new sequence
-        if (militaryUnit == null && civilianUnit == null && airUnits.isEmpty())
+        if (militaryUnit == null && civilianUnit == null && tradeUnit == null && airUnits.isEmpty())
             return emptySequence()
-        
+
         return sequence {
             if (militaryUnit != null) yield(militaryUnit!!)
             if (civilianUnit != null) yield(civilianUnit!!)
+            if (tradeUnit != null) yield(tradeUnit!!)
             if (airUnits.isNotEmpty()) yieldAll(airUnits)
         }
     }
@@ -1027,6 +1033,7 @@ class Tile : IsPartOfGameInfoSerialization {
             airUnits.contains(mapUnit) -> airUnits.remove(mapUnit)
             civilianUnit == mapUnit -> civilianUnit = null
             militaryUnit == mapUnit -> militaryUnit = null
+            tradeUnit == mapUnit -> tradeUnit = null
         }
     }
     

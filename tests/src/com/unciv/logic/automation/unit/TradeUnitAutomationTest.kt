@@ -58,18 +58,18 @@ class TradeUnitAutomationTest {
     }
 
     @Test
-    fun `an idle trade unit establishes a route toward a reachable known foreign city`() {
-        testGame.addCity(aiCiv, testGame.getTile(0, 0))           // AI capital (origin)
+    fun `a trade unit on its own city center establishes a route toward a reachable foreign city`() {
+        val aiCity: City = testGame.addCity(aiCiv, testGame.getTile(0, 0))   // route origin
         val foreignCity: City = testGame.addCity(foreignCiv, testGame.getTile(3, 0))
         aiCiv.gainStockpiledResource(tradeRouteResource, 1)
-        // The engine forbids entering a FOREIGN city center, so park the unit on a land tile ADJACENT to
-        // it (open borders are set in setUp) — distance 1 → the automation establishes immediately.
-        val dockTile = foreignCity.getCenterTile().neighbors.first { it.isLand && !it.isCityCenter() }
-        val unit = addLandTradeUnit(aiCiv, dockTile)
+        // New ITR model: the unit must stand ON its own city center; the route originates THERE.
+        val unit = addLandTradeUnit(aiCiv, aiCity.getCenterTile())
 
         TradeUnitAutomation.automateTradeUnit(unit)
 
         assertEquals("The AI must have established one route", 1, manager.connections.size)
+        assertEquals("The route must originate at the unit's own city",
+            aiCity.id, manager.connections.first().originCityId)
         assertEquals("The route must target the known foreign city",
             foreignCity.id, manager.connections.first().destinationCityId)
         assertEquals(aiCiv.civID, manager.connections.first().ownerCivId)
@@ -77,13 +77,11 @@ class TradeUnitAutomationTest {
 
     @Test
     fun `with capacity full the AI establishes no new route`() {
-        testGame.addCity(aiCiv, testGame.getTile(0, 0))
-        val foreignCity: City = testGame.addCity(foreignCiv, testGame.getTile(3, 0))
+        val aiCity: City = testGame.addCity(aiCiv, testGame.getTile(0, 0))
+        testGame.addCity(foreignCiv, testGame.getTile(3, 0))
         // No tokens granted -> capacity 0. The CivilianUnitAutomation guard would not even delegate, but
         // calling automateTradeUnit directly must also be a no-op because capacity gates the establish.
-        // Park adjacent to the foreign city center (its center is unenterable for a foreign unit).
-        val dockTile = foreignCity.getCenterTile().neighbors.first { it.isLand && !it.isCityCenter() }
-        val unit = addLandTradeUnit(aiCiv, dockTile)
+        val unit = addLandTradeUnit(aiCiv, aiCity.getCenterTile())
 
         TradeUnitAutomation.automateTradeUnit(unit)
 

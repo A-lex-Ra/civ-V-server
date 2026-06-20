@@ -260,6 +260,8 @@ class MapUnit : IsPartOfGameInfoSerialization {
 
     @Readonly fun isMilitary() = baseUnit.isMilitary
     @Readonly fun isCivilian() = baseUnit.isCivilian()
+    /** BNW Phase 3 — ITR: a trade unit (Caravan / Cargo Ship) by data, see [BaseUnit.isTradeUnit]. */
+    @Readonly fun isTradeUnit() = baseUnit.isTradeUnit()
 
     @Readonly fun isActionUntilHealed() = action?.endsWith("until healed") == true
 
@@ -1009,6 +1011,7 @@ class MapUnit : IsPartOfGameInfoSerialization {
                 throw IllegalStateException("Unit $name of ${civ.civID} at $currentTile can't be put in tile $tile, reason: ${movement.getCannotMoveToReason(tile)}")
             }
             baseUnit.movesLikeAirUnits -> tile.airUnits.add(this)
+            isTradeUnit() -> tile.tradeUnit = this
             isCivilian() -> tile.civilianUnit = this
             else -> tile.militaryUnit = this
         }

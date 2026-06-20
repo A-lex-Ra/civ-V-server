@@ -493,6 +493,19 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
     val isMilitary by lazy { isRanged() || isMelee() }
     @Readonly fun isCivilian() = !isMilitary
 
+    /**
+     * A "trade unit" (BNW Phase 3 — ITR) is any unit whose data carries the explicit
+     * [UniqueType.EstablishTradeRoute] marker OR the `Costs [1] [Trade Route]` stockpile cost — never
+     * hardcoded by name (Caravan / Cargo Ship). Determined by data so modded trade units work too.
+     */
+    @Readonly
+    fun isTradeUnit(): Boolean {
+        if (hasUnique(UniqueType.EstablishTradeRoute, GameContext.IgnoreConditionals)) return true
+        return getMatchingUniques(UniqueType.CostsResources, GameContext.IgnoreConditionals)
+            // == TradeRouteManager.TRADE_ROUTE_RESOURCE (kept literal to avoid models→logic.trade dependency)
+            .any { it.params.size >= 2 && it.params[1] == "Trade Route" }
+    }
+
     val isLandUnit by lazy { type.isLandUnit() }
     val isWaterUnit by lazy { type.isWaterUnit() }
     @Readonly fun isAirUnit() = type.isAirUnit()
