@@ -75,8 +75,22 @@ data/event engine is **unconfirmed**.
 - **Indonesia Candi:** flat `+3 Faith`
   ([Buildings.json:260](../android/assets/jsons/Civ%20V%20-%20Brave%20New%20World/Buildings.json#L260),
   TODO present) instead of scaling per distinct religion present.
-- **Aesthetics / Order tenets:** tourism conditionals (Cultural Exchange, Cult of Personality, Iron
-  Curtain, etc.) approximated with simpler/flat effects.
+- **Ideology tenets — effects.** Names / levels / structure are **100% faithful** (Freedom/Order/
+  Autocracy each have the correct 7/6/3 = 16 tenets, correct L3↔victory pairings, the three
+  "allows construction" wonders gated, mutual exclusivity present). A set of individual *effects* are
+  still approximated (most `// TODO`-tagged in `Policies.json`):
+  - *Freedom* — **Economic Union** (+1 Gold/route; should be +3 with other Freedom civs — needs a
+    per-route civ-ideology conditional); **Treaty Organization** (+50% CS-gift resources; should be
+    +4 Influence/turn with CS you trade with).
+  - *Order* — **Cultural Revolution** & **Dictatorship of the Proletariat** tourism applied
+    unconditionally (should be vs other Order civs / vs less-happy civs); **Iron Curtain** trade
+    bonus rides the legacy capital-connection path, not BNW internal routes; **Double Agents** /
+    **Spaceflight Pioneers** spy & Great-Engineer flavour substituted. *(Socialist Realism is now
+    **fixed** — +2 Happiness from Monuments, +100% Monument production.)*
+  - *Autocracy* — **Industrial Espionage** / **Cult of Personality** / **Gunboat Diplomacy** spy &
+    city-state effects approximated (need spy "2× faster" / common-enemy / tribute-CS conditionals).
+  - *Systematic:* tenet Happiness is modelled **globally** (per-civ) rather than Civ V's **local**
+    (per-city) — an engine-model limitation touching many happiness tenets.
 - **Landmark culture:** flat value instead of scaling with era difference.
 - **2 new BNW scenarios:** not ported (out of scope).
 
