@@ -110,11 +110,17 @@ open class TileGroup(
         // Do not update layers if tile is not explored by viewing player
         if (viewingCiv != null && !(isForceVisible || viewingCiv.hasExplored(tile))) {
             reset()
-            // If tile has explored neighbors - reveal layers partially
-            if (tile.neighbors.none { viewingCiv.hasExplored(it) })
-                // Else - hide all layers
+            if (tile.neighbors.none { viewingCiv.hasExplored(it) }) {
+                // No explored neighbor - this tile is truly off-map for the player, hide everything
                 setAllLayersVisible(false)
-            else layerOverlay.setUnexplored(viewingCiv)
+            } else {
+                layerOverlay.setUnexplored(viewingCiv)
+                // Civ V: a civ's cultural border is drawn wherever it runs along the frontier - even
+                // on a tile the viewer has never explored - as long as it touches explored terrain.
+                // The border layer derives purely from tile ownership (known here), so draw it even
+                // though the rest of the tile stays fogged/unexplored.
+                layerBorders.update(viewingCiv)
+            }
             return
         }
 

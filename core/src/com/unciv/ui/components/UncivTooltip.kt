@@ -49,7 +49,11 @@ class UncivTooltip <T: Actor>(
     private val offset: Vector2 = Vector2.Zero,
     private val animate: Boolean = true,
     forceContentSize: Vector2? = null,
-    private val contentRefresher: (() -> Vector2?)? = null
+    private val contentRefresher: (() -> Vector2?)? = null,
+    /** When true, [targetAlign]/[tipAlign] are ignored and recomputed at show-time from the target's
+     *  screen quadrant, so the tip opens toward screen center and stays on-screen (never centered on
+     *  the cursor / clipped at an edge). */
+    private val adaptive: Boolean = false
 ) : InputListener() {
 
     private val container: Container<T> = Container(content)
@@ -94,10 +98,23 @@ class UncivTooltip <T: Actor>(
             contentHeight = forceContentSize?.y ?: content.height
         }
 
-        val pos = target.localToStageCoordinates(target.getEdgePoint(targetAlign)).add(offset)
+        var effectiveTargetAlign = targetAlign
+        var effectiveTipAlign = tipAlign
+        if (adaptive) {
+            val stage = target.stage ?: return
+            val center = target.localToStageCoordinates(Vector2(target.width / 2f, target.height / 2f))
+            val horizontal = if (center.x < stage.width / 2f) Align.left else Align.right
+            // Scene2d Y grows upward: a high y means the target sits in the top half of the screen,
+            // so the tip should drop downward (anchor its top edge to the target's bottom).
+            val topHalf = center.y > stage.height / 2f
+            effectiveTargetAlign = horizontal or (if (topHalf) Align.bottom else Align.top)
+            effectiveTipAlign = horizontal or (if (topHalf) Align.top else Align.bottom)
+        }
+
+        val pos = target.localToStageCoordinates(target.getEdgePoint(effectiveTargetAlign)).add(offset)
         container.run {
-            val originX = getOriginX(contentWidth, tipAlign)
-            val originY = getOriginY(contentHeight, tipAlign)
+            val originX = getOriginX(contentWidth, effectiveTipAlign)
+            val originY = getOriginY(contentHeight, effectiveTipAlign)
             setOrigin(originX, originY)
             setPosition(pos.x - originX, pos.y - originY)
             if (useAnimation) {
@@ -302,6 +319,69 @@ class UncivTooltip <T: Actor>(
                 targetAlign = targetAlign,
                 tipAlign = tipAlign,
                 contentRefresher = contentRefresher
+            ))
+        }
+
+        /**
+         * Add a multi-line **descriptive** Tooltip (wrapped text at a fixed, readable font size) to
+         * any [Actor]. Unlike [addTooltip], the effective font size stays constant regardless of how
+         * long the text is, and the width is bounded by [maxWidth] (longer lines wrap), giving a
+         * uniform look for the longer "what does this do / where does this come from" hovers
+         * (tech tree, top-bar stat breakdowns, …) that the size-scaled [addTooltip] renders
+         * inconsistently (tiny for short text, oversized for long text).
+         *
+         * Desktop-only by default (suppressed without a keyboard) - pass [always] to override.
+         *
+         * @param text Automatically translated tooltip text (may contain Gdx color markup and newlines)
+         * @param fontSize Constant font size of the tooltip text
+         * @param maxWidth Maximum width before a long line wraps (only when [dynamicTextProvider] is null)
+         * @param dynamicTextProvider If set, called each time the tip is about to show, to refresh the text
+         *
+         * Placement is adaptive: the tip opens toward screen center from the target's quadrant, so it
+         * is never centered on the cursor nor clipped at a screen edge.
+         */
+        fun Actor.addDescriptionTooltip(
+            text: String,
+            fontSize: Int = 16,
+            maxWidth: Float = 360f,
+            always: Boolean = false,
+            dynamicTextProvider: (() -> String)? = null
+        ) {
+            removeTooltips()
+            if (!(always || GUI.keyboardAvailable)) return
+            if (dynamicTextProvider == null && text.isEmpty()) return
+
+            val labelColor = BaseScreen.skinStrings.skinConfig.baseColor
+            val label = ColorMarkupLabel(text, labelColor, fontSize = fontSize)
+            label.setAlignment(Align.left)
+
+            // Wrap only static, naturally-too-wide text. Dynamic (live-refreshed) tips keep their
+            // pre-formatted line breaks and size to their natural width on each refresh.
+            val shouldWrap = dynamicTextProvider == null && label.prefWidth > maxWidth
+            if (shouldWrap) label.wrap = true
+
+            val background = BaseScreen.skinStrings.getUiBackground(
+                "General/Tooltip", BaseScreen.skinStrings.roundedEdgeRectangleShape, Color.LIGHT_GRAY)
+            val content = Table()
+            content.background = background
+            val cell = content.add(label).pad(6f, 10f, 6f, 10f)
+            if (shouldWrap) cell.width(maxWidth)
+
+            fun packAndGetSize(): Vector2 {
+                content.pack()
+                return Vector2(content.width, content.height)
+            }
+
+            val contentRefresher: (() -> Vector2)? = if (dynamicTextProvider == null) null else { {
+                label.setText(ColorMarkupLabel.prepareText(dynamicTextProvider(), labelColor, Color.WHITE))
+                packAndGetSize()
+            } }
+
+            addListener(UncivTooltip(this,
+                content,
+                forceContentSize = packAndGetSize(),
+                contentRefresher = contentRefresher,
+                adaptive = true
             ))
         }
 

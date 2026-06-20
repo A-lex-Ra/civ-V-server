@@ -4,8 +4,11 @@ import com.badlogic.gdx.scenes.scene2d.Group
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.unciv.Constants
 import com.unciv.logic.civilization.Civilization
+import com.unciv.logic.trade.TradeRouteManager
+import com.unciv.models.stats.Stat
 import com.unciv.models.stats.Stats
 import com.unciv.models.translations.tr
+import com.unciv.ui.components.UncivTooltip.Companion.addDescriptionTooltip
 import com.unciv.ui.components.extensions.colorFromRGB
 import com.unciv.ui.components.extensions.setFontColor
 import com.unciv.ui.components.extensions.toLabel
@@ -36,6 +39,10 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
     private val faithPerTurnLabel = "+0"
         .toLabel(colorFromRGB(168, 196, 241), 14)
 
+    private val tradeRoutesLabel = "0".toLabel(colorFromRGB(225, 180, 120))
+    /** Whether this ruleset has International Trade Routes at all (the "Trade Route" stockpile resource). */
+    private var tradeRoutesEnabled = false
+
     private val happinessContainer = Group()
 
     // These are all to improve performance IE reduce update time (was 150 ms on my phone, which is a lot!)
@@ -65,6 +72,7 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
             icon: String,
             label: Label,
             noPad: Boolean = false,
+            tooltipProvider: (() -> String)? = null,
             screenFactory: () -> BaseScreen?
         ) {
             val image = ImageGetter.getStatIcon(icon)
@@ -74,6 +82,11 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
             }
             label.onClick(action)
             image.onClick(action)
+            // Hovering a stat tears down where it comes from (desktop only).
+            if (tooltipProvider != null) {
+                label.addDescriptionTooltip("", dynamicTextProvider = tooltipProvider)
+                image.addDescriptionTooltip("", dynamicTextProvider = tooltipProvider)
+            }
             add(image).padBottom(defaultImageBottomPad).size(defaultImageSize)
             add(label).padRight(if (noPad) 0f else padRightBetweenStats)
         }
@@ -82,8 +95,9 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
             icon: String,
             label: Label,
             overviewPage: EmpireOverviewCategories,
-            noPad: Boolean = false
-        ) = addStat(icon, label, noPad) {
+            noPad: Boolean = false,
+            tooltipProvider: (() -> String)? = null
+        ) = addStat(icon, label, noPad, tooltipProvider) {
             EmpireOverviewScreen(worldScreen.selectedCiv, overviewPage)
         }
 
@@ -93,26 +107,45 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
         }
 
 
-        addStat("Gold", goldLabel, EmpireOverviewCategories.Stats, true)
+        addStat("Science", scienceLabel, tooltipProvider = { buildStatBreakdown(Stat.Science) }) {
+            TechPickerScreen(worldScreen.selectedCiv)
+        }
+
+        addStat("Gold", goldLabel, EmpireOverviewCategories.Stats, true,
+            tooltipProvider = { buildStatBreakdown(Stat.Gold) })
         addPerTurnLabel(goldPerTurnLabel)
 
-        addStat("Science", scienceLabel) { TechPickerScreen(worldScreen.selectedCiv) }
+        // International Trade Routes counter (BNW) - right after Gold. Only shown for rulesets that
+        // actually have ITR (the "Trade Route" stockpile resource); vanilla/G&K hide it entirely.
+        tradeRoutesEnabled = worldScreen.gameInfo.ruleset.tileResources.containsKey(TradeRouteManager.TRADE_ROUTE_RESOURCE)
+        if (tradeRoutesEnabled) {
+            val tradeImage = ImageGetter.getResourcePortrait(TradeRouteManager.TRADE_ROUTE_RESOURCE, defaultImageSize)
+            val tradeTooltip = { buildTradeRoutesBreakdown() }
+            tradeRoutesLabel.addDescriptionTooltip("", dynamicTextProvider = tradeTooltip)
+            tradeImage.addDescriptionTooltip("", dynamicTextProvider = tradeTooltip)
+            add(tradeImage).padBottom(defaultImageBottomPad).size(defaultImageSize)
+            add(tradeRoutesLabel).padRight(padRightBetweenStats)
+        }
 
         val invokeResourcesPage = {
             worldScreen.openEmpireOverview(EmpireOverviewCategories.Resources)
         }
         happinessContainer.onClick(invokeResourcesPage)
         happinessLabel.onClick(invokeResourcesPage)
+        val happinessTooltip = { buildHappinessBreakdown() }
+        happinessContainer.addDescriptionTooltip("", dynamicTextProvider = happinessTooltip)
+        happinessLabel.addDescriptionTooltip("", dynamicTextProvider = happinessTooltip)
         add(happinessContainer).padBottom(defaultImageBottomPad).size(defaultImageSize)
         add(happinessLabel).padRight(padRightBetweenStats)
 
-        addStat("Culture", cultureLabel) {
+        addStat("Culture", cultureLabel, tooltipProvider = { buildStatBreakdown(Stat.Culture) }) {
             if (worldScreen.gameInfo.ruleset.policyBranches.isEmpty()) null
             else PolicyPickerScreen(worldScreen.selectedCiv, worldScreen.canChangeState)
         }
 
         if (worldScreen.gameInfo.isReligionEnabled()) {
-            addStat("Faith", faithLabel, EmpireOverviewCategories.Religion, true)
+            addStat("Faith", faithLabel, EmpireOverviewCategories.Religion, true,
+                tooltipProvider = { buildStatBreakdown(Stat.Faith) })
             addPerTurnLabel(faithPerTurnLabel)
         } else add("Religion: Off".toLabel())
 
@@ -127,6 +160,9 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
 
         goldLabel.setText(civInfo.gold.tr())
         goldPerTurnLabel.setText(rateLabel(nextTurnStats.gold))
+
+        if (tradeRoutesEnabled)
+            tradeRoutesLabel.setText(countInternationalRoutes(civInfo).tr())
 
         scienceLabel.setText(rateLabel(nextTurnStats.science))
 
@@ -175,5 +211,61 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
 
     private fun rateLabel(value: Float): String {
         return if (value.roundToInt() == 0) "±0" else value.roundToInt().toStringSigned()
+    }
+
+    /** Tears down where a per-turn [stat] (Gold / Science / Culture / Faith) comes from, source by
+     *  source, as multi-line translatable markup for a hover tooltip. */
+    private fun buildStatBreakdown(stat: Stat): String {
+        val civInfo = worldScreen.selectedCiv
+        val sb = StringBuilder("{$stat}:")
+        var total = 0f
+        for ((source, stats) in civInfo.stats.getStatMapForNextTurn()) {
+            val value = stats[stat]
+            if (value == 0f) continue
+            total += value
+            sb.append("\n{").append(source).append("}: ").append(signed(value))
+        }
+        sb.append("\n{Total}: ").append(signed(total))
+        return sb.toString()
+    }
+
+    /** Tears down the empire's happiness sources for a hover tooltip (sorted by impact). */
+    private fun buildHappinessBreakdown(): String {
+        val civInfo = worldScreen.selectedCiv
+        val sb = StringBuilder("{Happiness}:")
+        var total = 0f
+        for ((source, value) in civInfo.stats.getHappinessBreakdown().entries.sortedByDescending { it.value }) {
+            if (value == 0f) continue
+            total += value
+            sb.append("\n{").append(source).append("}: ").append(signed(value))
+        }
+        sb.append("\n{Total}: ").append(signed(total))
+        return sb.toString()
+    }
+
+    private fun signed(value: Float): String {
+        val rounded = value.roundToInt()
+        return if (rounded > 0) "+$rounded" else rounded.toString()
+    }
+
+    /** Number of International Trade Routes [civInfo] owns (destination city belongs to another civ). */
+    private fun countInternationalRoutes(civInfo: Civilization): Int {
+        val mgr = civInfo.gameInfo.tradeRouteManager
+        return mgr.getRoutesEstablishedBy(civInfo.civID).count {
+            val dest = mgr.getDestinationCity(it)
+            dest != null && dest.civ.civID != civInfo.civID
+        }
+    }
+
+    /** Hover breakdown for the trade-routes counter: international vs domestic, and capacity used/max. */
+    private fun buildTradeRoutesBreakdown(): String {
+        val civInfo = worldScreen.selectedCiv
+        val mgr = civInfo.gameInfo.tradeRouteManager
+        val owned = mgr.getRoutesEstablishedBy(civInfo.civID)
+        val international = owned.count { val d = mgr.getDestinationCity(it); d != null && d.civ.civID != civInfo.civID }
+        val domestic = owned.count { val d = mgr.getDestinationCity(it); d != null && d.civ.civID == civInfo.civID }
+        return "{International Trade Routes}: $international" +
+            "\n{Domestic Trade Routes}: $domestic" +
+            "\n{Trade Route capacity}: ${mgr.usedCapacity(civInfo.civID)}/${mgr.getMaxCapacity(civInfo)}"
     }
 }

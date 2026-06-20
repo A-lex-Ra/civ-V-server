@@ -15,7 +15,7 @@ import com.unciv.ui.components.extensions.brighten
 import com.unciv.ui.components.extensions.center
 import com.unciv.ui.components.extensions.centerY
 import com.unciv.ui.components.extensions.darken
-import com.unciv.ui.components.UncivTooltip.Companion.addTooltip
+import com.unciv.ui.components.UncivTooltip.Companion.addDescriptionTooltip
 import com.unciv.ui.components.extensions.setFontSize
 import com.unciv.ui.components.extensions.toLabel
 
@@ -97,7 +97,7 @@ class TechButton(
         // including which enabled wonders are World Wonders. Suppressed on touch-only devices.
         val tech = techManager.civInfo.gameInfo.ruleset.technologies[techName]
         if (tech != null)
-            addTooltip(TechnologyDescriptions.getDescription(tech, techManager.civInfo), size = 20f)
+            addDescriptionTooltip(TechnologyDescriptions.getDescription(tech, techManager.civInfo))
     }
 
     fun setButtonColor(color: Color) {
