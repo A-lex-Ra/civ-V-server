@@ -792,4 +792,47 @@ sealed interface GameCommand {
     ) : GameCommand
 
     // endregion
+
+    // region World Congress
+
+    /**
+     * BNW Phase 3 — World Congress (Increment 2). The acting civ proposes the resolution named
+     * [resolutionType] (a [com.unciv.logic.civilization.ResolutionType] enum name) during the congress's
+     * Proposing phase.
+     *
+     * Flat primitives only (§7 / D2): the proposal is server-canonical and referenced afterwards by its
+     * int id. [targetCivId] is set for targeting resolutions (e.g. TradeSanctions / WorldLeaderElection
+     * candidate) and [choiceArg] for choice resolutions (e.g. BanLuxury's luxury name). The authority
+     * (`CommandExecutor.executeProposeResolution`) validates membership, phase, the per-member /
+     * per-session cap, and that the type is currently proposable, then creates a
+     * [com.unciv.logic.civilization.CongressProposal] (`id = nextProposalId++`). `CommandException` on any
+     * violation, state untouched.
+     */
+    @Serializable
+    @SerialName("proposeResolution")
+    data class ProposeResolution(
+        val resolutionType: String,
+        val targetCivId: String = "",
+        val choiceArg: String = ""
+    ) : GameCommand
+
+    /**
+     * BNW Phase 3 — World Congress (Increment 2). The acting civ casts its full delegate bloc on the
+     * proposal with [proposalId] during the Voting phase: [delegates] delegates, all FOR ([voteFor] true)
+     * or all AGAINST.
+     *
+     * Full-bloc only (matching Civ V and simplifying the AI): the authority
+     * (`CommandExecutor.executeCastCongressVote`) requires `delegates == getDelegateCount(actingCiv)`,
+     * that the civ is a member who hasn't already voted on this proposal, and that the proposal exists in
+     * the current Voting session. `CommandException` on any violation, state untouched.
+     */
+    @Serializable
+    @SerialName("castCongressVote")
+    data class CastCongressVote(
+        val proposalId: Int,
+        val delegates: Int,
+        val voteFor: Boolean
+    ) : GameCommand
+
+    // endregion
 }

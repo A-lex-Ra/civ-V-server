@@ -21,6 +21,7 @@ import com.unciv.logic.civilization.PublicOpinion.IdeologicalPressureSource
 import com.unciv.logic.civilization.PublicOpinion.TourismPressureSource
 import com.unciv.logic.civilization.managers.GreatWorkManager
 import com.unciv.logic.civilization.managers.TechManager
+import com.unciv.logic.civilization.managers.WorldCongressManager
 import com.unciv.logic.civilization.managers.TourismManager
 import com.unciv.logic.civilization.managers.TurnManager
 import com.unciv.logic.civilization.managers.VictoryManager
@@ -113,6 +114,9 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
     var greatWorkManager = GreatWorkManager()
     /** BNW Phase 3 — authoritative registry of every established International Trade Route (D1). */
     var tradeRouteManager = TradeRouteManager()
+    /** BNW Phase 3 — authoritative, GameInfo-level World Congress state (D1). Default-constructs to a
+     *  valid "no congress founded yet" state, so old saves need no migration. */
+    var congress = WorldCongressManager()
     var religions: HashMap<String, Religion> = hashMapOf()
     var difficulty = "Chieftain" // difficulty is game-wide, think what would happen if 2 human players could play on different difficulties?
     var tileMap: TileMap = TileMap()
@@ -200,6 +204,7 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
         toReturn.barbarians = barbarians.clone()
         toReturn.greatWorkManager = greatWorkManager.clone()
         toReturn.tradeRouteManager = tradeRouteManager.clone()
+        toReturn.congress = congress.clone()
         toReturn.religions.putAll(religions.asSequence().map { it.key to it.value.clone() })
         toReturn.currentPlayer = currentPlayer
         toReturn.currentTurnStartTime = currentTurnStartTime
@@ -532,6 +537,19 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
         diplomaticVictoryVotesProcessed = true
     }
 
+    /**
+     * BNW Phase 3 — World Congress turn-loop hook (D4), twin of [processDiplomaticVictory]. Called once
+     * per game turn from [com.unciv.logic.civilization.managers.TurnManager]'s start-turn flags (reaching
+     * both single-player and v3 `nextTurn`). Idempotent: the serialized [WorldCongressManager.lastProcessedTurn]
+     * guard ensures [WorldCongressManager.advanceTurn] does real work exactly once per [turns], so a
+     * mid-session save/load never double-processes.
+     */
+    fun processWorldCongress() {
+        if (congress.lastProcessedTurn == turns) return
+        congress.lastProcessedTurn = turns
+        congress.advanceTurn()
+    }
+
     /** @return `true` if someone has won - checks existing [victoryData] and each civ's [VictoryManager.getVictoryTypeAchieved] */
     fun checkForVictory(): Boolean {
         if (victoryData != null) return true
@@ -789,6 +807,7 @@ class GameInfo : IsPartOfGameInfoSerialization, HasGameInfoSerializationVersion 
         spaceResources.addAll(ruleset.victories.values.flatMap { it.requiredSpaceshipParts })
 
         barbarians.setTransients(this)
+        congress.setTransients(this)
         greatWorkManager.setTransients(this)
 
         guaranteeUnitPromotions()

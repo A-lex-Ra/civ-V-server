@@ -14,6 +14,7 @@ import com.unciv.ui.screens.cityscreen.CityScreen
 import com.unciv.ui.screens.overviewscreen.EspionageOverviewScreen
 import com.unciv.ui.screens.pickerscreens.DiplomaticVotePickerScreen
 import com.unciv.ui.screens.pickerscreens.PantheonPickerScreen
+import com.unciv.ui.screens.pickerscreens.WorldCongressScreen
 import com.unciv.ui.screens.pickerscreens.PolicyPickerScreen
 import com.unciv.ui.screens.pickerscreens.ReligiousBeliefsPickerScreen
 import com.unciv.ui.screens.pickerscreens.TechPickerScreen
@@ -116,6 +117,14 @@ enum class NextTurnAction(protected val text: String, val color: Color) {
             worldScreen.viewingCiv.mayVoteForDiplomaticVictory()
         override fun action(worldScreen: WorldScreen) =
             worldScreen.game.pushScreen(DiplomaticVotePickerScreen(worldScreen.viewingCiv))
+    },
+    WorldCongressSession("Attend the World Congress", Color.MAROON) {
+        // BNW Phase 3 — Increment 5 (twin of WorldCongressVote): prompt a member who has not yet acted in
+        // the current Proposing/Voting window to open the World Congress screen.
+        override fun isChoice(worldScreen: WorldScreen) =
+            WorldCongressScreen.shouldPrompt(worldScreen.viewingCiv)
+        override fun action(worldScreen: WorldScreen) =
+            worldScreen.game.pushScreen(WorldCongressScreen(worldScreen.viewingCiv))
     },
     NextUnit("Next unit", Color.LIGHT_GRAY) {
         override fun isChoice(worldScreen: WorldScreen) =

@@ -538,4 +538,62 @@ class PlayerViewProjectorTest {
     }
 
     // endregion
+
+    // region World Congress (BNW Phase 3)
+
+    @Test
+    fun congressPublicStateSurvivesProjection() {
+        // Increment-1 regression anchor: founding / host / delegate counts are PUBLIC, so they must come
+        // through projection unchanged (this is the baseline Increment 2's vote-scrub builds on).
+        testGame.addUnit("Warrior", civA, centerTile)
+        testGame.ruleset.modOptions.constants.worldCongressFoundingEra = 0
+        val congress = testGame.gameInfo.congress
+        congress.tryFoundCongress()
+        congress.recomputeDelegates()
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+
+        assertTrue("Founding status must be public", viewForA.congress.isFounded)
+        assertEquals("Host must be public", congress.hostCivId, viewForA.congress.hostCivId)
+        assertEquals("Delegate counts must be public",
+            congress.delegateCounts, viewForA.congress.delegateCounts)
+    }
+
+    @Test
+    fun rivalVotesAreScrubbedDuringVotingButOwnAndMetadataKept() {
+        // Increment-2 anti-maphack: during Voting, rivals' in-progress votes are hidden; the viewer's own
+        // vote, the proposal metadata, and delegate counts stay.
+        testGame.addUnit("Warrior", civA, centerTile)
+        testGame.ruleset.modOptions.constants.worldCongressFoundingEra = 0
+        val congress = testGame.gameInfo.congress
+        congress.tryFoundCongress()
+        congress.recomputeDelegates()
+        congress.currentPhase = com.unciv.logic.civilization.managers.CongressPhase.Voting
+
+        val proposal = com.unciv.logic.civilization.CongressProposal().apply {
+            id = 1
+            resolutionType = com.unciv.logic.civilization.ResolutionType.SciencesFunding.name
+            proposerCivId = civA.civID
+            votesFor[civA.civID] = 2   // the viewer's own vote
+            votesAgainst[civB.civID] = 3 // a rival's in-progress vote
+        }
+        congress.activeProposals.add(proposal)
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val projectedProposal = viewForA.congress.activeProposals.first()
+
+        assertTrue("The viewer's own vote must be kept", projectedProposal.votesFor.containsKey(civA.civID))
+        assertFalse("A rival's in-progress vote must be scrubbed",
+            projectedProposal.votesAgainst.containsKey(civB.civID))
+        // Proposal metadata + delegate counts stay public.
+        assertEquals(com.unciv.logic.civilization.ResolutionType.SciencesFunding.name,
+            projectedProposal.resolutionType)
+        assertEquals("Delegate counts remain public during Voting",
+            congress.delegateCounts, viewForA.congress.delegateCounts)
+        // Canonical state must be untouched.
+        assertTrue("Canonical rival vote must be intact",
+            congress.activeProposals.first().votesAgainst.containsKey(civB.civID))
+    }
+
+    // endregion
 }

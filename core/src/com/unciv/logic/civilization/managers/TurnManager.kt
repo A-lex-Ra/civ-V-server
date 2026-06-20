@@ -149,9 +149,17 @@ class TurnManager(val civInfo: Civilization) {
             }
         }
         handleDiplomaticVictoryFlags()
+        // BNW Phase 3 — World Congress turn-loop hook (D4), after the legacy diplomatic-vote machinery.
+        // Idempotent per game-turn via GameInfo.processWorldCongress's lastProcessedTurn guard.
+        civInfo.gameInfo.processWorldCongress()
     }
 
     private fun handleDiplomaticVictoryFlags() {
+        // BNW Phase 3 — Increment 4 (D5): when a founded World Congress owns the world-leader vote, do NOT
+        // also schedule the legacy UN diplomatic-vote machinery (the two front-ends are mutually exclusive
+        // at runtime). Non-congress rulesets (and pre-founding) keep the legacy path unchanged.
+        if (civInfo.gameInfo.congress.isFounded) return
+
         if (civInfo.flagsCountdown[CivFlags.ShouldResetDiplomaticVotes.name] == 0) {
             civInfo.gameInfo.diplomaticVictoryVotesCast.clear()
             civInfo.removeFlag(CivFlags.ShowDiplomaticVotingResults.name)

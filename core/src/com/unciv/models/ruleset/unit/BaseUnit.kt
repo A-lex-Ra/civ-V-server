@@ -107,7 +107,11 @@ class BaseUnit : RulesetObject(), INonPerpetualConstruction {
     @Readonly
     override fun isUnavailableBySettings(gameInfo: GameInfo) =
         super<INonPerpetualConstruction>.isUnavailableBySettings(gameInfo) ||
-        (!gameInfo.gameParameters.nuclearWeaponsEnabled && isNuclearWeapon())
+        (!gameInfo.gameParameters.nuclearWeaponsEnabled && isNuclearWeapon()) ||
+        // BNW Phase 3 — World Congress (Increment 3): a passing Nuclear Non-Proliferation resolution bans
+        // building nuclear weapons for everyone. Guarded on `congress.isFounded` so non-congress games are
+        // unaffected.
+        (gameInfo.congress.isFounded && gameInfo.congress.nuclearNonProliferation && isNuclearWeapon())
 
     @Readonly
     fun getUpgradeUnits(gameContext: GameContext = GameContext.EmptyState): Sequence<String> {

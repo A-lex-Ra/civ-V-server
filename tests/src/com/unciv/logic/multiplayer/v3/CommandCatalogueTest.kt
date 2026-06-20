@@ -841,4 +841,164 @@ class CommandCatalogueTest {
     }
 
     // endregion
+
+    // region World Congress (BNW Phase 3 — Increment 2)
+
+    /** Found the congress (era-0) and force it into the Proposing phase. */
+    private fun foundCongressInProposing() {
+        testGame.ruleset.modOptions.constants.worldCongressFoundingEra = 0
+        // A congress member is an ALIVE major civ (getMemberCivs() == getAliveMajorCivs()). A civ with no
+        // city and no unit is isDefeated() (no original capital -> getCivUnitsSize() == 0), so it would NOT
+        // be a member and tryFoundCongress() would find no founders. Give civInfo a unit so it is alive and
+        // founding (and the member-gated propose/vote commands below) work. Scoped to the WC helper: only the
+        // WC command tests call it, and they don't place their own cities/units, so there is no collision.
+        if (civInfo.units.getCivUnitsSize() == 0 && civInfo.cities.isEmpty())
+            testGame.addUnit("Warrior", civInfo, testGame.tileMap[0, 0])
+        val congress = testGame.gameInfo.congress
+        congress.tryFoundCongress()
+        congress.recomputeDelegates()
+        congress.currentPhase = com.unciv.logic.civilization.managers.CongressPhase.Proposing
+    }
+
+    @Test
+    fun proposeResolutionAddsProposal() {
+        foundCongressInProposing()
+        val congress = testGame.gameInfo.congress
+
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.ProposeResolution(com.unciv.logic.civilization.ResolutionType.SciencesFunding.name)
+        )
+
+        assertEquals("A proposal must have been added", 1, congress.activeProposals.size)
+        assertEquals(com.unciv.logic.civilization.ResolutionType.SciencesFunding.name,
+            congress.activeProposals.first().resolutionType)
+        assertEquals(civInfo.civID, congress.activeProposals.first().proposerCivId)
+    }
+
+    @Test
+    fun proposeResolutionWhenNotProposingIsRejected() {
+        testGame.ruleset.modOptions.constants.worldCongressFoundingEra = 0
+        testGame.gameInfo.congress.tryFoundCongress()
+        // Phase is Idle, not Proposing.
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.ProposeResolution(com.unciv.logic.civilization.ResolutionType.SciencesFunding.name)
+            )
+        }
+        assertTrue(testGame.gameInfo.congress.activeProposals.isEmpty())
+    }
+
+    @Test
+    fun proposeUnknownResolutionTypeIsRejected() {
+        foundCongressInProposing()
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.ProposeResolution("NoSuchResolution"))
+        }
+    }
+
+    @Test
+    fun proposeByNonMemberIsRejected() {
+        foundCongressInProposing()
+        // A city-state is not a member.
+        val cityState = testGame.addCiv(cityStateType = "Cultured")
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, cityState.civID,
+                GameCommand.ProposeResolution(com.unciv.logic.civilization.ResolutionType.SciencesFunding.name)
+            )
+        }
+    }
+
+    @Test
+    fun castCongressVoteRecordsTheFullBloc() {
+        foundCongressInProposing()
+        val congress = testGame.gameInfo.congress
+        val proposal = congress.addProposal(civInfo, com.unciv.logic.civilization.ResolutionType.SciencesFunding)
+        congress.currentPhase = com.unciv.logic.civilization.managers.CongressPhase.Voting
+
+        val delegates = congress.getDelegateCount(civInfo)
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.CastCongressVote(proposal.id, delegates, voteFor = true)
+        )
+
+        assertEquals("The full bloc must be recorded FOR", delegates, proposal.votesFor[civInfo.civID])
+    }
+
+    @Test
+    fun castCongressVoteWhenNotVotingIsRejected() {
+        foundCongressInProposing()
+        val congress = testGame.gameInfo.congress
+        val proposal = congress.addProposal(civInfo, com.unciv.logic.civilization.ResolutionType.SciencesFunding)
+        // Still in Proposing, not Voting.
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.CastCongressVote(proposal.id, congress.getDelegateCount(civInfo), true)
+            )
+        }
+    }
+
+    @Test
+    fun castCongressVoteWithWrongDelegateCountIsRejected() {
+        foundCongressInProposing()
+        val congress = testGame.gameInfo.congress
+        val proposal = congress.addProposal(civInfo, com.unciv.logic.civilization.ResolutionType.SciencesFunding)
+        congress.currentPhase = com.unciv.logic.civilization.managers.CongressPhase.Voting
+        val wrong = congress.getDelegateCount(civInfo) + 5
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.CastCongressVote(proposal.id, wrong, true))
+        }
+        assertFalse("No vote may be recorded on a rejected cast", proposal.hasVoted(civInfo.civID))
+    }
+
+    @Test
+    fun castCongressVoteTwiceIsRejected() {
+        foundCongressInProposing()
+        val congress = testGame.gameInfo.congress
+        val proposal = congress.addProposal(civInfo, com.unciv.logic.civilization.ResolutionType.SciencesFunding)
+        congress.currentPhase = com.unciv.logic.civilization.managers.CongressPhase.Voting
+        val delegates = congress.getDelegateCount(civInfo)
+        executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.CastCongressVote(proposal.id, delegates, true))
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.CastCongressVote(proposal.id, delegates, true))
+        }
+    }
+
+    @Test
+    fun castCongressVoteOnUnknownProposalIsRejected() {
+        foundCongressInProposing()
+        testGame.gameInfo.congress.currentPhase = com.unciv.logic.civilization.managers.CongressPhase.Voting
+        assertThrows(CommandException::class.java) {
+            executor.execute(testGame.gameInfo, civInfo.civID, GameCommand.CastCongressVote(999, 1, true))
+        }
+    }
+
+    @Test
+    fun congressCommandsRoundTripThroughKotlinx() {
+        val propose: GameCommand = GameCommand.ProposeResolution("BanLuxury", "", "Silk")
+        val proposeDecoded = com.unciv.network.serialization.relayJson.decodeFromString(
+            GameCommand.serializer(),
+            com.unciv.network.serialization.relayJson.encodeToString(GameCommand.serializer(), propose)
+        )
+        assertTrue(proposeDecoded is GameCommand.ProposeResolution)
+        proposeDecoded as GameCommand.ProposeResolution
+        assertEquals("BanLuxury", proposeDecoded.resolutionType)
+        assertEquals("Silk", proposeDecoded.choiceArg)
+
+        val vote: GameCommand = GameCommand.CastCongressVote(3, 4, false)
+        val voteDecoded = com.unciv.network.serialization.relayJson.decodeFromString(
+            GameCommand.serializer(),
+            com.unciv.network.serialization.relayJson.encodeToString(GameCommand.serializer(), vote)
+        )
+        assertTrue(voteDecoded is GameCommand.CastCongressVote)
+        voteDecoded as GameCommand.CastCongressVote
+        assertEquals(3, voteDecoded.proposalId)
+        assertEquals(4, voteDecoded.delegates)
+        assertFalse(voteDecoded.voteFor)
+    }
+
+    // endregion
 }

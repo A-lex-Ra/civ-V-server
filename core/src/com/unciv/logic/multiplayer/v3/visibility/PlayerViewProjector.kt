@@ -110,6 +110,7 @@ object PlayerViewProjector {
         redactBarbarianEncampments(projected, visibility)
         redactOtherCivSecrets(projected, viewingCivId)
         redactTradeRoutes(projected, viewingCivId)
+        redactCongressSecrets(projected, viewingCivId)
         redactGreatWorkPlacements(projected, viewingCivId, visibility)
         redactTileContents(projected, visibility, rememberedImprovements)
 
@@ -390,6 +391,27 @@ object PlayerViewProjector {
 
         connections.removeAll { c ->
             !(c.ownerCivId == viewerId || c.originCityId in myCityIds || c.destinationCityId in myCityIds)
+        }
+    }
+
+    /**
+     * BNW Phase 3 — World Congress (D3). The congress is mostly *public* (founding/host/schedule/delegate
+     * counts/active-proposal metadata/enacted history are all visible to every member), so the
+     * [com.unciv.logic.civilization.managers.WorldCongressManager] is NOT wholesale scrubbed. The one
+     * secret to close: **in-progress vote intentions**. While the session is in the Voting phase, a rival
+     * civ's not-yet-public votes (for/against) would let a hostile client read how others intend to vote
+     * before resolution. So during Voting we drop every vote entry keyed by a civId OTHER than the viewer,
+     * keeping the viewer's own cast vote, the proposal metadata, and delegate counts.
+     *
+     * Reads/writes ONLY serialized fields on the cloned congress; runs once per projection (GameInfo-level
+     * state), so it lives here, not in the per-civ [scrubCivSecrets].
+     */
+    private fun redactCongressSecrets(projected: GameInfo, viewerId: String) {
+        val congress = projected.congress
+        if (congress.currentPhase != com.unciv.logic.civilization.managers.CongressPhase.Voting) return
+        for (proposal in congress.activeProposals) {
+            proposal.votesFor.keys.retainAll { it == viewerId }
+            proposal.votesAgainst.keys.retainAll { it == viewerId }
         }
     }
 

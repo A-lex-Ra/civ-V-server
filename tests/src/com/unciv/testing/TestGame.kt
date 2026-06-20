@@ -75,6 +75,9 @@ class TestGame(vararg addGlobalUniques: String, forUITesting: Boolean = false) {
         // BNW Phase 3 — TestGame builds GameInfo without the full setTransients(), so wire the
         // GameInfo-level trade-route registry's back-reference (its per-turn hook runs every nextTurn).
         gameInfo.tradeRouteManager.setTransients(gameInfo)
+        // BNW Phase 3 — likewise the World Congress manager (its processWorldCongress hook runs every
+        // nextTurn via TurnManager.startTurnFlags, hitting the @Transient lateinit gameInfo otherwise).
+        gameInfo.congress.setTransients(gameInfo)
 
         gameInfo.currentPlayerCiv = Civilization()  // Will be uninitialized, do not build on for tests
 

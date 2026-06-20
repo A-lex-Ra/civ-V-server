@@ -115,6 +115,8 @@ class CommandExecutor {
             is GameCommand.ResolveEvent -> executeResolveEvent(gameInfo, playerCivId, command)
             is GameCommand.EstablishTradeRoute -> executeEstablishTradeRoute(gameInfo, playerCivId, command)
             is GameCommand.MoveGreatWork -> executeMoveGreatWork(gameInfo, playerCivId, command)
+            is GameCommand.ProposeResolution -> executeProposeResolution(gameInfo, playerCivId, command)
+            is GameCommand.CastCongressVote -> executeCastCongressVote(gameInfo, playerCivId, command)
             is GameCommand.EndTurn ->
                 // Inter-turn processing (GameInfo.nextTurn) is owned by the session/authority loop,
                 // not the executor (see docs/multiplayer-v3.md Phase 3).
@@ -1502,6 +1504,104 @@ class CommandExecutor {
             )
 
         manager.moveWork(work, destSlot)
+    }
+
+    // endregion
+
+    // region world congress
+
+    /**
+     * BNW Phase 3 — Increment 2: the acting civ proposes a resolution during the congress's Proposing
+     * phase. Mirrors [executeAdoptPolicy]/[executeDemandResponse] in shape: resolve the subject, validate
+     * every gate (each → [CommandException]), then create the proposal via the shared
+     * [com.unciv.logic.civilization.managers.WorldCongressManager.addProposal].
+     *
+     * Gates (all reject without mutating state):
+     *  - the congress is founded and currently in the Proposing phase;
+     *  - the acting civ is a member (alive major) and has not already proposed this session (≤1 each);
+     *  - the session proposal cap (≤2 total) is not yet reached;
+     *  - the resolution type exists and is currently proposable
+     *    ([com.unciv.logic.civilization.ResolutionType.isProposable]);
+     *  - a targeting resolution carries a valid foreign member target; a choice resolution carries a
+     *    non-empty argument.
+     */
+    private fun executeProposeResolution(gameInfo: GameInfo, playerCivId: String, command: GameCommand.ProposeResolution) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val congress = gameInfo.congress
+
+        if (!congress.isFounded)
+            throw CommandException("The World Congress has not been founded")
+        if (congress.currentPhase != com.unciv.logic.civilization.managers.CongressPhase.Proposing)
+            throw CommandException("The World Congress is not accepting proposals right now")
+        if (!congress.isMember(actingCiv.civID))
+            throw CommandException("'$playerCivId' is not a member of the World Congress")
+        if (congress.hasProposed(actingCiv.civID))
+            throw CommandException("'$playerCivId' has already proposed a resolution this session")
+        if (congress.activeProposals.size >= congress.maxProposalsPerSession())
+            throw CommandException("The World Congress has reached its proposal cap this session")
+
+        val type = try {
+            com.unciv.logic.civilization.ResolutionType.valueOf(command.resolutionType)
+        } catch (e: IllegalArgumentException) {
+            throw CommandException("Unknown resolution type '${command.resolutionType}'")
+        }
+        if (!type.isProposable(congress, actingCiv))
+            throw CommandException("'${command.resolutionType}' cannot be proposed right now")
+
+        // Targeting / choice argument validation.
+        var targetCivId = ""
+        if (type.needsTarget) {
+            val target = gameInfo.getCivilizationOrNull(command.targetCivId)
+                ?: throw CommandException("Resolution '${command.resolutionType}' needs a valid target civ")
+            if (!congress.isMember(target.civID) && type != com.unciv.logic.civilization.ResolutionType.WorldLeaderElection)
+                throw CommandException("Resolution target '${command.targetCivId}' is not a congress member")
+            targetCivId = target.civID
+        }
+        var choiceArg = ""
+        if (type.needsChoiceArg) {
+            if (command.choiceArg.isEmpty())
+                throw CommandException("Resolution '${command.resolutionType}' needs a choice argument")
+            choiceArg = command.choiceArg
+        }
+
+        congress.addProposal(actingCiv, type, targetCivId, choiceArg)
+    }
+
+    /**
+     * BNW Phase 3 — Increment 2: the acting civ casts its full delegate bloc on a proposal during the
+     * Voting phase. Full-bloc only (matching Civ V): the cast count MUST equal the civ's current delegate
+     * count. Mirrors the other executors: validate, then record via
+     * [com.unciv.logic.civilization.managers.WorldCongressManager.castVote].
+     *
+     * Gates (all reject without mutating state):
+     *  - the congress is founded and currently in the Voting phase;
+     *  - the proposal with [com.unciv.network.command.GameCommand.CastCongressVote.proposalId] exists this session;
+     *  - the acting civ is a member who has not already voted on this proposal;
+     *  - the cast [com.unciv.network.command.GameCommand.CastCongressVote.delegates] equals the civ's delegate count.
+     */
+    private fun executeCastCongressVote(gameInfo: GameInfo, playerCivId: String, command: GameCommand.CastCongressVote) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val congress = gameInfo.congress
+
+        if (!congress.isFounded)
+            throw CommandException("The World Congress has not been founded")
+        if (congress.currentPhase != com.unciv.logic.civilization.managers.CongressPhase.Voting)
+            throw CommandException("The World Congress is not accepting votes right now")
+        if (!congress.isMember(actingCiv.civID))
+            throw CommandException("'$playerCivId' is not a member of the World Congress")
+
+        val proposal = congress.getProposal(command.proposalId)
+            ?: throw CommandException("No proposal with id ${command.proposalId} in the current session")
+        if (proposal.hasVoted(actingCiv.civID))
+            throw CommandException("'$playerCivId' has already voted on proposal ${command.proposalId}")
+
+        val delegates = congress.getDelegateCount(actingCiv)
+        if (command.delegates != delegates)
+            throw CommandException(
+                "Votes must be the full delegate bloc ($delegates) for '$playerCivId', got ${command.delegates}"
+            )
+
+        congress.castVote(actingCiv, proposal, delegates, command.voteFor)
     }
 
     // endregion

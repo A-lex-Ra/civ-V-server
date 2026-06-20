@@ -25,6 +25,14 @@ class TradeEvaluation {
     @Readonly
     fun isTradeValid(trade: Trade, offerer: Civilization, tradePartner: Civilization): Boolean {
 
+        // BNW Phase 3 — World Congress (Increment 3): a civ under Trade Sanctions cannot trade with anyone.
+        // Guarded on `congress.isFounded` so non-congress games (and the legacy diplomatic-vote game) are
+        // bit-for-bit unaffected.
+        val congress = offerer.gameInfo.congress
+        if (congress.isFounded &&
+            (offerer.civID in congress.sanctionedCivs || tradePartner.civID in congress.sanctionedCivs))
+            return false
+
         // Edge case time! Guess what happens if you offer a peace agreement to the AI for all their cities except for the capital,
         // and then capture their capital THAT SAME TURN? It can agree, leading to the civilization getting instantly destroyed!
         // If a civ has never owned an original capital, which means it has not settled the first city yet, 

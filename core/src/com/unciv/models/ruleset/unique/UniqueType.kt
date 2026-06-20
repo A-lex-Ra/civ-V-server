@@ -94,7 +94,9 @@ enum class UniqueType(
     CityStateMoreGiftedUnits("Militaristic City-States grant units [positiveAmount] times as fast when you are at war with a common nation", UniqueTarget.Global),
 
     CityStateGoldGiftsProvideMoreInfluence("Gifts of Gold to City-States generate [relativeAmount]% more Influence", UniqueTarget.Global),
-    
+    /** BNW Phase 3 — World Congress: grants extra delegates ([com.unciv.logic.civilization.managers.WorldCongressManager.getDelegateCount]). */
+    WorldCongressDelegates("Provides [amount] Delegate(s) in the World Congress", UniqueTarget.Global),
+
     
     CityStateCanBeBoughtForGold("Can spend Gold to annex or puppet a City-State that has been your Ally for [nonNegativeAmount] turns", UniqueTarget.Global),
     CityStateTerritoryAlwaysFriendly("City-State territory always counts as friendly territory", UniqueTarget.Global),
@@ -907,6 +909,8 @@ enum class UniqueType(
     OneTimeRevealEntireMap("Reveals the entire map", UniqueTarget.Triggerable),  // used in tech
     OneTimeFreeBelief("Gain a free [beliefType] belief", UniqueTarget.Triggerable),
     OneTimeTriggerVoting("Triggers voting for the Diplomatic Victory", UniqueTarget.Triggerable),  // used in Building
+    /** BNW Phase 3 — World Congress (D6, optional explicit founding trigger; era-based auto-found is the default). */
+    OneTimeFoundWorldCongress("Triggers founding of the World Congress", UniqueTarget.Triggerable),
 
     OneTimeConsumeResources("Instantly consumes [positiveAmount] [stockpiledResource]", UniqueTarget.Triggerable),
     OneTimeProvideResources("Instantly provides [positiveAmount] [stockpiledResource]", UniqueTarget.Triggerable),

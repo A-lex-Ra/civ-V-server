@@ -9,6 +9,7 @@ import com.unciv.logic.map.tile.RoadStatus
 import com.unciv.models.ruleset.Policy
 import com.unciv.models.ruleset.tile.ResourceType
 import com.unciv.models.ruleset.tile.TileImprovement
+import com.unciv.models.ruleset.tile.TileResource
 import com.unciv.models.ruleset.unique.GameContext
 import com.unciv.models.ruleset.unique.Unique
 import com.unciv.models.ruleset.unique.UniqueTarget
@@ -83,6 +84,12 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
 
         if (!civInfo.isHuman())
             cost *= civInfo.gameInfo.getDifficulty().aiUnitMaintenanceModifier
+
+        // BNW Phase 3 — World Congress (Increment 3): a passing Standing Army Tax resolution surcharges
+        // every member's unit upkeep. Guarded on `congress.isFounded` so non-congress games are unaffected.
+        val congress = civInfo.gameInfo.congress
+        if (congress.isFounded && congress.standingArmyTaxActive && congress.isMember(civInfo.civID))
+            cost *= 1.5f
 
         return cost.toInt()
     }
@@ -246,9 +253,17 @@ class CivInfoStatsForNextTurn(val civInfo: Civilization) {
         val ownedLuxuries = civInfo.getCivResourceSupply().map { it.resource }
             .filter { it.resourceType == ResourceType.Luxury }
 
+        // BNW Phase 3 — World Congress (Increment 2): a luxury embargoed by a passing BanLuxury resolution
+        // grants no happiness to ANY civ. Guarded on `congress.isFounded` so non-congress games (and the
+        // legacy diplomatic-vote game) are bit-for-bit unaffected.
+        val congress = civInfo.gameInfo.congress
+        val luxuryIsBanned = { resource: TileResource ->
+            congress.isFounded && resource.name in congress.bannedLuxuries
+        }
         val relevantLuxuries = civInfo.getCivResourceSupply().asSequence()
             .map { it.resource }
             .count { it.resourceType == ResourceType.Luxury
+                    && !luxuryIsBanned(it)
                     && it.getMatchingUniques(UniqueType.ObsoleteWith)
                 .none { unique -> civInfo.tech.isResearched(unique.params[0]) } }
         statMap["Luxury resources"] = relevantLuxuries * happinessPerUniqueLuxury

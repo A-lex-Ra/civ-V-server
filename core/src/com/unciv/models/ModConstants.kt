@@ -111,6 +111,14 @@ class ModConstants {
     var baseTurnsUntilRevolt = 4
     var cityStateElectionTurns = 15
 
+    // BNW World Congress (Phase 3). All standard-speed turn counts (scaled by game speed at use).
+    // worldCongressFoundingEra: the era *number* at/after which the congress auto-founds (D6). 3 is a
+    // Renaissance-tier era in the bundled rulesets (Ancient=0, Classical=1, Medieval=2, Renaissance=3).
+    var worldCongressSessionTurns = 15
+    var worldCongressFoundingEra = 3
+    // Duration of temporary resolution effects / world projects, in standard-speed turns.
+    var worldCongressEffectTurns = 20
+
     // Economy
     var maxGoldTradeOffer = 10000
 
