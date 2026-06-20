@@ -2,7 +2,7 @@
 
 Design context: `docs/brave-new-world-adoption.md` §1 (Tier C), §4 (Tier C row World Congress), §5.3, §7 (the `ProposeTrade`/kotlinx-serialization deferral warning). Implementation contract, split into independently-committable increments.
 
-> **Top note:** subagents do **NOT** run Gradle and do **NOT** commit. The orchestrator runs the single build+test (`:tests:test`) and commits each increment. Each increment is ordered so it compiles + tests green on its own.
+> **Top note:** subagents do **NOT** run Gradle and do **NOT** commit. The orchestrator runs the single build+test (`:tests:test`) and commits feature.
 
 Baseline today: the **only** diplomatic-vote concept is the legacy UN diplomatic victory in `VictoryManager` (`votesNeededForDiplomaticVictory`, `getUNBuildingAndOwnerNames`, `hasEnoughVotesForDiplomaticVictory`, `getDiplomaticVictoryVoteBreakdown`), driven by `GameInfo.diplomaticVictoryVotesCast: HashMap<String, String?>` + `GameInfo.processDiplomaticVictory()`, scheduled by per-civ flags in `TurnManager.handleDiplomaticVictoryFlags` (`CivFlags.TurnsTillNextDiplomaticVote / ShowDiplomaticVotingResults / ShouldResetDiplomaticVotes`), founded by `UniqueType.OneTimeTriggerVoting` (the UN wonder), AI votes in `NextTurnAutomation.tryVoteForDiplomaticVictory`, human votes via `NextTurnAction.WorldCongressVote` → `DiplomaticVotePickerScreen` → `Civilization.diplomaticVoteForCiv`. There is **no** native World Congress: no sessions, proposals, resolutions, host, delegates-from-CS, world projects, or embargoes.
 

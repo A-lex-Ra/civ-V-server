@@ -228,24 +228,12 @@ class WorldScreen(
                     if (game.gameInfo !== gameInfo) return@onView // ignore if we've navigated away from this game
                     // A fresh filtered snapshot arrives mid-turn too now (the authority re-pushes the
                     // actor's view right after a move / bought tile / founded city so reveal is instant).
-                    // Rebuild WITHOUT the loading-screen flash, and since the snapshot is a brand-new
-                    // GameInfo with new MapUnit objects, re-find the player's selected unit by its stable
-                    // serialized id (NOT position — a just-moved unit is at a new tile, and for the host
-                    // the in-process view push fires before the optimistic local move even runs) so the
-                    // selection survives the refresh.
-                    val selectedUnit = bottomUnitTable.selectedUnit
-                    val reselectUnitId = selectedUnit?.id?.takeIf { it != Constants.NO_ID }
-                    val reselectOwner = selectedUnit?.owner
+                    // Rebuild WITHOUT the loading-screen flash. The unit selection (and its pending-move
+                    // destination path) is preserved by the same-game RestoreState that loadGame captures
+                    // and re-applies during the new screen's init — so it is present on the first frame and
+                    // does NOT flicker/reset (a deferred re-select would blink for one frame).
                     Concurrency.run("V2 view refresh") {
-                        val newScreen = UncivGame.Current.loadGame(newGameInfo, skipLoadingScreen = true)
-                        if (reselectUnitId != null && reselectOwner != null) launchOnGLThread {
-                            val unit = newScreen.gameInfo.getCivilizationOrNull(reselectOwner)
-                                ?.units?.getCivUnits()?.firstOrNull { it.id == reselectUnitId }
-                            if (unit != null) {
-                                newScreen.bottomUnitTable.selectUnit(unit)
-                                newScreen.shouldUpdate = true
-                            }
-                        }
+                        UncivGame.Current.loadGame(newGameInfo, skipLoadingScreen = true)
                     }
                 }
             }
@@ -618,16 +606,21 @@ class WorldScreen(
         mapHolder: WorldMapHolder,
         val selectedCivName: String,
         val viewingCivName: String,
-        val fogOfWar: Boolean
+        val fogOfWar: Boolean,
+        /** Stable serialized id of the selected unit, or [Constants.NO_ID] if none — re-selected on restore. */
+        val selectedUnitId: Int,
+        val selectedUnitOwner: String?
     ) {
         val zoom = mapHolder.scaleX
         val scrollX = mapHolder.scrollX
         val scrollY = mapHolder.scrollY
     }
-    
+
     @Readonly
     fun getRestoreState(): RestoreState {
-        return RestoreState(mapHolder, selectedCiv.civID, viewingCiv.civID, fogOfWar)
+        val selectedUnit = bottomUnitTable.selectedUnit
+        return RestoreState(mapHolder, selectedCiv.civID, viewingCiv.civID, fogOfWar,
+            selectedUnit?.id ?: Constants.NO_ID, selectedUnit?.owner)
     }
 
     private fun restore(restoreState: RestoreState) {
@@ -642,6 +635,17 @@ class WorldScreen(
 
         selectedCiv = gameInfo.getCivilization(restoreState.selectedCivName)
         fogOfWar = restoreState.fogOfWar
+
+        // Re-select the unit that was selected before a same-game reload. Done HERE during init — before
+        // the first render — so the unit's selection and its pending-move destination path are present on
+        // frame one and don't flicker/reset. Matched by stable serialized id (robust to the unit having
+        // just moved). This makes the multiplayer-v3 in-place view refresh (which rebuilds the screen on
+        // every reveal) seamless: the "next movement point" stays put across the refresh.
+        if (restoreState.selectedUnitId != Constants.NO_ID && restoreState.selectedUnitOwner != null) {
+            val unit = gameInfo.getCivilizationOrNull(restoreState.selectedUnitOwner)
+                ?.units?.getCivUnits()?.firstOrNull { it.id == restoreState.selectedUnitId }
+            if (unit != null) bottomUnitTable.selectUnit(unit)
+        }
     }
 
     fun nextTurn() {
