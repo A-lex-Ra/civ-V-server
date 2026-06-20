@@ -87,22 +87,51 @@ class PolicyManagerSwitchIdeologyTest {
     }
 
     @Test
-    fun `switching removes old tenets, refunds culture, adopts the new branch and enters anarchy`() {
+    fun `switching removes old tenets, grants no culture refund, adopts the new branch and enters anarchy`() {
         adoptStartingIdeologyWithCulture()
         val expectedAnarchy = civInfo.policies.getAnarchyTurns()
         val cultureBeforeSwitch = civInfo.policies.storedCulture
 
-        civInfo.policies.switchIdeology(toIdeology, refundPercentage = 50)
+        civInfo.policies.switchIdeology(toIdeology)
 
         assertFalse("Old ideology branch start must be removed",
             civInfo.policies.isAdopted(fromIdeology.name))
         assertEquals("New ideology must be the current one",
             toIdeology.name, civInfo.policies.getCurrentIdeology()?.name)
-        assertTrue("Culture must have been refunded for the lost tenet (was $cultureBeforeSwitch, now ${civInfo.policies.storedCulture})",
-            civInfo.policies.storedCulture > cultureBeforeSwitch)
+        assertEquals("Switching re-grants free tenet picks, not culture, so stored culture is unchanged",
+            cultureBeforeSwitch, civInfo.policies.storedCulture)
         assertEquals("Anarchy countdown must equal the game-speed-scaled anarchy length",
             expectedAnarchy, civInfo.publicOpinion.anarchyTurnsRemaining)
         assertTrue(civInfo.publicOpinion.isInAnarchy())
+    }
+
+    @Test
+    fun `switching re-grants free tenet picks equal to the abandoned tenet count`() {
+        adoptStartingIdeologyWithCulture()
+        // Give the old ideology two member tenets and adopt them (paying culture). Insert each BEFORE
+        // the auto branch-completion policy so it stays last (the engine auto-completes off the last).
+        val tenetCount = 2
+        for (i in 0 until tenetCount) {
+            val tenet = Policy().apply {
+                name = "OldTenet$i"
+                branch = fromIdeology
+                requires = arrayListOf(fromIdeology.name)
+            }
+            testGame.ruleset.policies[tenet.name] = tenet
+            fromIdeology.policies.add(0, tenet)
+            civInfo.policies.freePolicies = 0
+            civInfo.policies.storedCulture = 10_000
+            civInfo.policies.adopt(tenet)
+        }
+        val freePoliciesBefore = civInfo.policies.freePolicies
+
+        civInfo.policies.switchIdeology(toIdeology)
+
+        assertEquals("The civ must receive one free tenet pick per abandoned tenet",
+            freePoliciesBefore + tenetCount, civInfo.policies.freePolicies)
+        assertFalse("Abandoned tenets must be removed", civInfo.policies.isAdopted("OldTenet0"))
+        assertEquals("New ideology must be the current one",
+            toIdeology.name, civInfo.policies.getCurrentIdeology()?.name)
     }
 
     @Test

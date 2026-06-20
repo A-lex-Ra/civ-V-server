@@ -367,44 +367,43 @@ class PolicyManager : IsPartOfGameInfoSerialization {
      * method assumes a legal call and only performs the mutation.
      *
      * Effects, mirroring Civ V's ideology switch:
-     *  1. **Lose the old ideology's tenets, partially refunded.** Reuses the exact refund machinery of
-     *     [UniqueType.OneTimeRemovePolicyRefund] ([getAdoptedPoliciesMatching] in removal order +
-     *     [getCultureRefundMap] + [removePolicy]): every adopted policy in the old branch (members,
-     *     plus the branch start itself) is removed; culture-bought tenets refund [refundPercentage]%
-     *     of their cost, "free" surplus tenets refund a free policy instead.
-     *  2. **Adopt the new ideology's branch start** via [adopt] (runs its triggerable uniques, the
-     *     standard adoption side effects).
-     *  3. **Enter anarchy** for [getAnarchyTurns] turns (scaled by game speed), applying a civ-wide
+     *  1. **Abandon the old ideology.** Every adopted policy in the old branch (its tenets, the branch
+     *     start, and the auto branch-completion) is removed. No culture is refunded — Civ V re-grants
+     *     tenet *picks*, not culture (see step 3).
+     *  2. **Adopt the new ideology's branch start** via [adopt] (runs its triggerable uniques and the
+     *     standard adoption side effects), granted free of culture cost since a switch isn't a purchase.
+     *  3. **Re-grant free tenet picks** equal to the number of tenets abandoned in step 1 — Civ V: "you
+     *     get to pick a number of Tenets in your new Ideology equal to the number of Tenets you had".
+     *     The picks are added to [freePolicies]; the player / AI spends them in the new ideology's
+     *     levels. (Civ V additionally subtracts any Early-Adopter free tenets received for the old
+     *     ideology; that refinement is not modeled — the full prior count is re-granted.)
+     *  4. **Enter anarchy** for [getAnarchyTurns] turns (scaled by game speed), applying a civ-wide
      *     `[-100]% Production` / `[-100]% Science` via the engine's own temporary-unique machinery
      *     (see [com.unciv.logic.civilization.managers.PublicOpinionManager.applyAnarchy]).
-     *
-     * @param refundPercentage culture refunded for the lost tenets (Civ V refunds 50%).
      */
-    fun switchIdeology(toBranch: PolicyBranch, refundPercentage: Int = 50) {
-        // 1. Remove the OLD ideology's tenets with refund (mirrors OneTimeRemovePolicyRefund).
+    fun switchIdeology(toBranch: PolicyBranch) {
+        // 1. Abandon the OLD ideology: remove its branch start + every adopted tenet, counting the
+        //    tenets (excluding the branch start and the auto BranchComplete) to re-grant as free picks.
+        var tenetsToRepick = 0
         val oldIdeology = getCurrentIdeology()
         if (oldIdeology != null) {
-            // "[branch] branch" matches all member policies plus the branch start; forRemoval sorts
-            // descending by json position so members are removed before the branch start.
-            val policiesToRemove = getAdoptedPoliciesMatching("[${oldIdeology.name}] branch", forRemoval = true)
-            val refundMap = getCultureRefundMap(policiesToRemove, refundPercentage)
-            for ((policy, refund) in refundMap) {
-                if (refund == FREE_POLICY_MARKER) {
-                    removePolicy(policy, assumeWasFree = true)
-                    freePolicies++
-                } else {
-                    removePolicy(policy)
-                    addCulture(refund)
-                }
+            // "[branch] branch" matches the branch start + all member policies; forRemoval drops the
+            // auto BranchComplete and sorts members-before-start so the removal order is valid.
+            // Materialize before removing — we mutate adoptedPolicies inside the loop.
+            for (policy in getAdoptedPoliciesMatching("[${oldIdeology.name}] branch", forRemoval = true).toList()) {
+                if (policy.name != oldIdeology.name) tenetsToRepick++
+                removePolicy(policy, assumeWasFree = true)
             }
         }
 
-        // 2. Adopt the new ideology's branch start (free of culture cost — this is a switch, not a
-        //    normal adoption; grant a free policy so adopt() doesn't try to spend culture).
+        // 2. Adopt the new ideology's branch start (granted free — a switch is not a culture purchase).
         freePolicies++
         adopt(toBranch)
 
-        // 3. Enter anarchy (no production / research) for the scaled number of turns.
+        // 3. Re-grant free tenet picks equal to the abandoned tenet count (the Civ V recompute).
+        freePolicies += tenetsToRepick
+
+        // 4. Enter anarchy (no production / research) for the scaled number of turns.
         civInfo.publicOpinion.applyAnarchy(getAnarchyTurns())
     }
 

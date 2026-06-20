@@ -717,15 +717,16 @@ class CommandExecutor {
         if (actingCiv.publicOpinion.isInAnarchy())
             throw CommandException("'$playerCivId' is in anarchy and cannot switch ideology right now")
 
-        // The switch must be either voluntarily adoptable (the same rule gate AdoptPolicy uses, minus
-        // the "already adopted" check the switch path handles), or forced by Civil Resistance.
+        // A switch is permitted when forced by Civil Resistance OR as a deliberate voluntary choice.
+        // We do NOT gate a voluntary switch on isAdoptable(toBranch): ideologies are mutually exclusive,
+        // so a rival ideology is never "adoptable" while you hold one — yet Civ V lets a civ choose to
+        // switch, paying anarchy + losing its tenets. The guards above (the civ holds a DIFFERENT
+        // ideology and is not already in anarchy) are the real voluntary-switch preconditions; holding
+        // any ideology already implies its (Modern-era) availability gate was met.
         val forced = actingCiv.publicOpinion.forcedSwitchPending
-        if (!forced && !policyManager.isAdoptable(toBranch))
-            throw CommandException(
-                "'${command.toBranchName}' is not adoptable by '$playerCivId' right now and no Civil Resistance forces the switch"
-            )
 
-        // Delegate to the engine (removes+refunds old tenets, adopts the new branch start, enters anarchy).
+        // Delegate to the engine (removes the old tenets, adopts the new branch start, re-grants free
+        // tenet picks equal to the abandoned tenet count, and enters anarchy).
         policyManager.switchIdeology(toBranch)
 
         // On a forced switch, consume the actionable Civil-Resistance alert so it isn't re-presented.

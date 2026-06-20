@@ -34,6 +34,7 @@ import com.unciv.ui.components.widgets.BorderedTable
 import com.unciv.ui.components.widgets.ColorMarkupLabel
 import com.unciv.ui.images.ImageGetter
 import com.unciv.ui.popups.ConfirmPopup
+import com.unciv.ui.popups.Popup
 import com.unciv.ui.screens.basescreen.BaseScreen
 import com.unciv.ui.screens.basescreen.RecreateOnResize
 import yairm210.purity.annotations.Readonly
@@ -190,6 +191,18 @@ class PolicyPickerScreen(
         if (!canChangeState)
             rightSideButton.disable()
 
+        // BNW: surface post-switch anarchy right where the player switches ideology, and explain why
+        // switching to another ideology is unavailable while it lasts.
+        if (viewingCiv.publicOpinion.isInAnarchy()) {
+            val turns = viewingCiv.publicOpinion.anarchyTurnsRemaining
+            val banner = ColorMarkupLabel(
+                "Anarchy! No Production or Science for [$turns] more turns.",
+                Color.valueOf("ff6b6b"), fontSize = 18
+            )
+            banner.setAlignment(Align.center)
+            topTable.add(banner).pad(10f).row()
+        }
+
         topTable.row()
 
         val branches = viewingCiv.gameInfo.ruleset.policyBranches
@@ -291,6 +304,9 @@ class PolicyPickerScreen(
         private val topBtn = getTopButton(branch)
         private val topBtnCell: Cell<Table>
         private val labelTable = Table()
+        /** Expanded content shown when the box is open: the social-policy tree [group] for normal
+         *  branches, or the level-rows table for ideologies. Toggled against [labelTable]. */
+        private lateinit var expandedActor: Group
 
         init {
             // Calculate preferred size
@@ -338,63 +354,103 @@ class PolicyPickerScreen(
             topBtnCell = add(topBtn).growX().pad(10f, 10f, 0f, 10f)
             row()
 
-            // Main grid
-            group.width = prefWidth
-            group.height = prefHeight
+            if (branch.isIdeology) {
+                // BNW ideology: tenets form interchangeable levels (by row), NOT a prerequisite tree.
+                // Each level is a fixed row of slots whose count is that level's adoption cap (e.g.
+                // Level 2 = 4) — see [ideologyLevelSlots]. Adopted tenets fill slots as gold icons,
+                // left to right; the remaining slots render as empty placeholders. Tenets are
+                // interchangeable, so an empty slot isn't bound to a specific tenet — clicking one
+                // opens a chooser of that level's currently-available tenets. Empty slots are dimmed
+                // when the level is locked (its prerequisites aren't met) or no policy is in stock.
+                val ideologyTable = Table().apply { defaults().left() }
+                val maxLevel = branch.policies
+                    .filter { it.policyBranchType != PolicyBranchType.BranchComplete }
+                    .maxOfOrNull { it.row } ?: 0
+                for (level in 1..maxLevel) {
+                    val levelTenets = branch.policies
+                        .filter { it.row == level && it.policyBranchType != PolicyBranchType.BranchComplete }
+                        .sortedBy { it.column }
+                    if (levelTenets.isEmpty()) continue
+                    ideologyTable.add("Level $level".toLabel(fontSize = 13))
+                        .left().padLeft(20f).padTop(8f).padBottom(2f).row()
+                    // True when SOME tenet of this level can be adopted right now by the ruleset (level
+                    // unlocked, era reached, under its cap) — independent of whether a policy is in stock.
+                    val levelAdoptable = levelTenets.any {
+                        !viewingCiv.policies.isAdopted(it.name) && viewingCiv.policies.isAdoptable(it)
+                    }
+                    val adoptedTenets = levelTenets.filter { viewingCiv.policies.isAdopted(it.name) }
+                    val slotCount = ideologyLevelSlots(levelTenets, level)
+                    val slotRow = Table().apply { align(Align.left) }
+                    for (tenet in adoptedTenets)
+                        slotRow.add(getPolicyButton(tenet)).pad(4f)
+                    repeat((slotCount - adoptedTenets.size).coerceAtLeast(0)) {
+                        slotRow.add(getEmptyTenetSlot(branch, level, levelAdoptable)).pad(4f)
+                    }
+                    ideologyTable.add(slotRow).left().padLeft(15f).padBottom(4f).row()
+                }
+                expandedActor = ideologyTable
+                groupCell = add(expandedActor).expandY().top()
+                row()
+            } else {
+                // Main grid
+                group.width = prefWidth
+                group.height = prefHeight
 
-            // Calculate grid points coordinates
-            val startX = Sizes.paddingHorizontal
-            val endX = prefWidth - Sizes.paddingHorizontal - Sizes.iconSize
-            val deltaX = (endX - startX) / (maxCol - 1)
+                // Calculate grid points coordinates
+                val startX = Sizes.paddingHorizontal
+                val endX = prefWidth - Sizes.paddingHorizontal - Sizes.iconSize
+                val deltaX = (endX - startX) / (maxCol - 1)
 
-            val startY = prefHeight - Sizes.paddingVertical - Sizes.iconSize
-            val endY = Sizes.paddingVertical
-            val deltaY = (startY - endY) / (maxRow - 1)
+                val startY = prefHeight - Sizes.paddingVertical - Sizes.iconSize
+                val endY = Sizes.paddingVertical
+                val deltaY = (startY - endY) / (maxRow - 1)
 
-            val coords = Array(maxRow + 1) { Array(maxCol + 1) { Pair(0f, 0f) } }
+                val coords = Array(maxRow + 1) { Array(maxCol + 1) { Pair(0f, 0f) } }
 
-            var row = 1
-            var col: Int
+                var row = 1
+                var col: Int
 
-            var posX: Float
-            var posY = startY
+                var posX: Float
+                var posY = startY
 
-            while (row <= maxRow) {
-                col = 1
-                posX = startX
-                while (col <= maxCol) {
-                    coords[row][col] = Pair(posX, posY)
+                while (row <= maxRow) {
+                    col = 1
+                    posX = startX
+                    while (col <= maxCol) {
+                        coords[row][col] = Pair(posX, posY)
 
-                    col += 1
-                    posX += deltaX
+                        col += 1
+                        posX += deltaX
+                    }
+
+                    row += 1
+                    posY -= deltaY
                 }
 
-                row += 1
-                posY -= deltaY
+                // Create policy buttons at calculated coordinates
+                for (policy in branch.policies) {
+                    if (policy.policyBranchType == PolicyBranchType.BranchComplete)
+                        continue
+
+                    val button = getPolicyButton(policy)
+                    group.addActor(button)
+
+                    val policyX = coords[policy.row][policy.column].first
+                    val policyY = coords[policy.row][policy.column].second
+
+                    button.x = policyX
+                    button.y = policyY
+
+                    policyNameToButton[policy.name] = button
+                }
+
+                // Draw connecting lines
+                drawLines(branch)
+
+                expandedActor = group
+                groupCell = add(expandedActor).minWidth(prefWidth).expandY().top()
+                row()
             }
-
-            // Create policy buttons at calculated coordinates
-            for (policy in branch.policies) {
-                if (policy.policyBranchType == PolicyBranchType.BranchComplete)
-                    continue
-
-                val button = getPolicyButton(policy)
-                group.addActor(button)
-
-                val policyX = coords[policy.row][policy.column].first
-                val policyY = coords[policy.row][policy.column].second
-
-                button.x = policyX
-                button.y = policyY
-
-                policyNameToButton[policy.name] = button
-            }
-
-            // Draw connecting lines
-            drawLines(branch)
-
-            groupCell = add(group).minWidth(prefWidth).expandY().top()
-            row()
 
             // Setup header clicks
             header.onClick(::toggle)
@@ -404,10 +460,10 @@ class PolicyPickerScreen(
         }
 
         fun toggle() {
-            val newActor = if (groupCell.actor == group) labelTable else group
-            val rotate = if (groupCell.actor == group) -90f else 90f
+            val newActor = if (groupCell.actor == expandedActor) labelTable else expandedActor
+            val rotate = if (groupCell.actor == expandedActor) -90f else 90f
 
-            if (groupCell.actor == group)
+            if (groupCell.actor == expandedActor)
                 topBtnCell.clearActor()
             else
                 topBtnCell.setActor(topBtn)
@@ -570,6 +626,8 @@ class PolicyPickerScreen(
 
         val text: String
         val isPickable = branch.isPickable(viewingCiv, canChangeState)
+        // A civ that already follows an ideology can VOLUNTARILY switch to a different one here.
+        val isSwitchable = canSwitchToIdeology(branch)
         var isAdoptedBranch = false
         var percentage = 0f
 
@@ -591,7 +649,7 @@ class PolicyPickerScreen(
         } else if (viewingCiv.gameInfo.ruleset.eras[branch.era]!!.eraNumber > viewingCiv.getEraNumber()) {
             text = branch.era
         } else {
-            text = "Adopt"
+            text = if (isSwitchable) "Switch" else "Adopt"
         }
 
         val label = text.toLabel(fontSize = 14)
@@ -599,10 +657,10 @@ class PolicyPickerScreen(
 
         label.color = when {
             isAdoptedBranch -> PolicyColors.BranchLabelAdopted
-            isPickable -> PolicyColors.BranchLabelPickable
+            isPickable || isSwitchable -> PolicyColors.BranchLabelPickable
             else -> PolicyColors.BranchLabelNotPickable
         }.color
-        lockIcon.isVisible = !isPickable && !isAdoptedBranch
+        lockIcon.isVisible = !isPickable && !isSwitchable && !isAdoptedBranch
 
         val table = object : BorderedTable(
             path="PolicyScreen/PolicyBranchAdoptButton",
@@ -632,7 +690,7 @@ class PolicyPickerScreen(
 
         }
         table.bgColor = when {
-            isPickable -> PolicyColors.ButtonBGPickable
+            isPickable || isSwitchable -> PolicyColors.ButtonBGPickable
             else -> PolicyColors.ButtonBGNotPickable
         }.color
         table.borderSize = 3f
@@ -643,23 +701,26 @@ class PolicyPickerScreen(
         lockIcon.setPosition(table.width, table.height / 2 - lockIcon.height/2)
 
         table.onClick {
-            if (branch.isPickable(viewingCiv, canChangeState))
-                ConfirmPopup(
-                    this,
-                    "Are you sure you want to adopt [${branch.name}]?",
-                    "Adopt", true, action = {
-                        // multiplayer-v3: a branch adoption is keyed by the branch's own name; send the
-                        // intent before the local mutation, then FALL THROUGH.
-                        val v2 = com.unciv.UncivGame.Current.v3GameManager
-                        if (v2 != null) {
-                            v2.sendCommand(com.unciv.network.command.GameCommand.AdoptPolicy(
-                                policyName = branch.name
-                            ))
+            when {
+                branch.isPickable(viewingCiv, canChangeState) ->
+                    ConfirmPopup(
+                        this,
+                        "Are you sure you want to adopt [${branch.name}]?",
+                        "Adopt", true, action = {
+                            // multiplayer-v3: a branch adoption is keyed by the branch's own name; send the
+                            // intent before the local mutation, then FALL THROUGH.
+                            val v2 = com.unciv.UncivGame.Current.v3GameManager
+                            if (v2 != null) {
+                                v2.sendCommand(com.unciv.network.command.GameCommand.AdoptPolicy(
+                                    policyName = branch.name
+                                ))
+                            }
+                            viewingCiv.policies.adopt(branch, false)
+                            game.replaceCurrentScreen(recreate())
                         }
-                        viewingCiv.policies.adopt(branch, false)
-                        game.replaceCurrentScreen(recreate())
-                    }
-                ).open(force = true)
+                    ).open(force = true)
+                canSwitchToIdeology(branch) -> confirmSwitchIdeology(branch)
+            }
         }
 
         return table
@@ -674,8 +735,13 @@ class PolicyPickerScreen(
     }
 
     private fun confirmAction() {
-        val policy = selectedPolicyButton!!.policy
+        adoptPolicy(selectedPolicyButton!!.policy)
+    }
 
+    /** Adopt [policy] (a social policy or an ideology tenet), mirroring the v3 command path, then
+     *  recreate the screen. Shared by the right-side Adopt button and the ideology tenet chooser.
+     *  No-op if the policy isn't currently pickable. */
+    private fun adoptPolicy(policy: Policy) {
         // Evil people clicking on buttons too fast to confuse the screen - #4977
         if (!policy.isPickable(viewingCiv, canChangeState)) return
 
@@ -692,6 +758,113 @@ class PolicyPickerScreen(
         // update policies
         if (game.screen !is PolicyPickerScreen) game.popScreen()
         else game.replaceCurrentScreen(recreate())
+    }
+
+    /** Number of tenet slots to show for ideology [level]: the level's adoption cap if the data defines
+     *  one, else the number of tenets at that level. BNW Level-2 tenets carry a
+     *  `... [Ideology: Level 2 Tenet] ... is less than [4]` availability rule, so Level 2 shows 4 slots;
+     *  Level 1 (7 tenets) and Level 3 (3 tenets) have no cap and show one slot per tenet. The cap is
+     *  read from the level's own tenets so it tracks the data rather than being hard-coded. */
+    private fun ideologyLevelSlots(levelTenets: List<Policy>, level: Int): Int {
+        val capFromData = levelTenets.asSequence()
+            .flatMap { it.uniqueObjects.asSequence() }
+            .flatMap { it.modifiers.asSequence() }
+            // The cap conditional uniquely references this level's "Level N Tenet" countable AND a
+            // "less than [N]" bound; this avoids matching unrelated "less than" conditionals (e.g. a
+            // city-state count) that some tenets also carry.
+            .filter { it.text.contains("Level $level Tenet") && it.text.contains("less than") }
+            .mapNotNull { Regex("""less than \[(\d+)]""").find(it.text)?.groupValues?.get(1)?.toIntOrNull() }
+            .firstOrNull()
+        return if (capFromData != null) minOf(levelTenets.size, capFromData) else levelTenets.size
+    }
+
+    /** An empty ideology slot rendered for an unadopted tenet position at [level] of [branch]. When
+     *  [levelAdoptable] (the level is unlocked and under its cap) and a policy is in stock it shows a
+     *  bright "+" and opens the tenet chooser on click; otherwise it is dimmed with an explanatory
+     *  hint (the level is locked, or no policy is available to spend yet). */
+    private fun getEmptyTenetSlot(branch: PolicyBranch, level: Int, levelAdoptable: Boolean): Table {
+        val canPickNow = levelAdoptable && canChangeState && viewingCiv.policies.canAdoptPolicy()
+        val slot = BorderedTable(
+            path = "PolicyScreen/PolicyButton",
+            defaultBgBorder = skinStrings.roundedEdgeRectangleSmallShape,
+            defaultBgShape = skinStrings.roundedEdgeRectangleSmallShape
+        )
+        slot.borderSize = 2f
+        slot.bgColor = (if (canPickNow) PolicyColors.ButtonBGPickable else PolicyColors.ButtonBGNotPickable).color
+        // "+" while the level can still take tenets (bright if pickable now, dim if waiting on culture);
+        // a locked level shows an empty box.
+        val marker = (if (levelAdoptable) "+" else "").toLabel(fontSize = 28)
+        marker.setAlignment(Align.center)
+        if (!canPickNow) marker.color = Color.valueOf("ffffff7f")
+        slot.add(marker).size(Sizes.iconSize).center()
+        slot.pack()
+        if (canPickNow) {
+            slot.touchable = Touchable.enabled
+            slot.onClick { openTenetChooser(branch, level) }
+            slot.addTooltip("Choose a Level $level Tenet", size = 18f)
+        } else {
+            slot.addTooltip(if (levelAdoptable) "Adopt a policy" else "Requires more tenets", size = 18f)
+        }
+        return slot
+    }
+
+    /** A civ that already follows an ideology may VOLUNTARILY switch to a different one (paying anarchy
+     *  + losing its tenets). Returns true when [branch] is such a switch target right now. Ideologies
+     *  are mutually exclusive, so a rival ideology is never "adoptable" — this is the only switch path
+     *  besides the forced Civil-Resistance prompt. */
+    private fun canSwitchToIdeology(branch: PolicyBranch): Boolean {
+        if (!branch.isIdeology) return false
+        if (!viewingCiv.isCurrentPlayer() || !canChangeState || viewingCiv.isDefeated()) return false
+        if (viewingCiv.publicOpinion.isInAnarchy()) return false
+        val current = viewingCiv.policies.getCurrentIdeology() ?: return false
+        return current.name != branch.name
+    }
+
+    /** Confirm + perform a voluntary ideology switch to [branch]: warn about the anarchy + tenet loss,
+     *  then (multiplayer-v3) send the SwitchIdeology intent before the optimistic local switch. */
+    private fun confirmSwitchIdeology(branch: PolicyBranch) {
+        val current = viewingCiv.policies.getCurrentIdeology() ?: return
+        val anarchyTurns = viewingCiv.policies.getAnarchyTurns()
+        ConfirmPopup(
+            this,
+            "Switch ideology to [${branch.name}]?\n\nYou will abandon [${current.name}] (its tenets are removed, half their culture refunded) and enter Anarchy for [$anarchyTurns] turns (no Production or Science).",
+            "Switch and enter Anarchy", true, action = {
+                // multiplayer-v3: route the switch to the authority first, then optimistically switch the
+                // local (throwaway, visibility-filtered) view; the next authoritative snapshot replaces it.
+                val v2 = com.unciv.UncivGame.Current.v3GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.SwitchIdeology(
+                        toBranchName = branch.name
+                    ))
+                }
+                viewingCiv.policies.switchIdeology(branch)
+                game.replaceCurrentScreen(recreate())
+            }
+        ).open(force = true)
+    }
+
+    /** Popup listing every currently-adoptable tenet of [level] in [branch] (icon + effects);
+     *  picking one adopts it like any other policy. */
+    private fun openTenetChooser(branch: PolicyBranch, level: Int) {
+        val available = branch.policies.filter {
+            it.row == level && !viewingCiv.policies.isAdopted(it.name) && viewingCiv.policies.isAdoptable(it)
+        }
+        val popup = Popup(this)
+        popup.addGoodSizedLabel("Choose a Level $level Tenet", 22).pad(10f).row()
+        for (tenet in available) {
+            val entry = Table()
+            entry.add(ImageGetter.getImage("PolicyIcons/" + tenet.name)).size(40f).pad(8f)
+            entry.add(tenet.getDescription().toLabel(fontSize = 14).apply { wrap = true })
+                .width(stage.width * 0.4f).left().pad(4f)
+            entry.touchable = Touchable.enabled
+            entry.onClick {
+                popup.close()
+                adoptPolicy(tenet)
+            }
+            popup.add(entry).growX().padBottom(6f).row()
+        }
+        popup.addCloseButton()
+        popup.open()
     }
 
     override fun recreate(): BaseScreen {

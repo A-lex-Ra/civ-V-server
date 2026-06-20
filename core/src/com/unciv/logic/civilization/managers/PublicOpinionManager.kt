@@ -3,6 +3,7 @@ package com.unciv.logic.civilization.managers
 import com.unciv.logic.IsPartOfGameInfoSerialization
 import com.unciv.logic.civilization.AlertType
 import com.unciv.logic.civilization.Civilization
+import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.civilization.PopupAlert
 import com.unciv.logic.civilization.PublicOpinion.IdeologicalPressureSource
 import com.unciv.models.ruleset.PolicyBranch
@@ -196,6 +197,13 @@ class PublicOpinionManager : IsPartOfGameInfoSerialization {
     fun applyAnarchy(turns: Int) {
         anarchyTurnsRemaining = turns
         forcedSwitchPending = false
+        // Civ-wide, play-time-visible signal (projected to the client like any notification) so the
+        // player sees the switch cost even without opening the policy screen. Fires for both the
+        // voluntary and the forced (Civil-Resistance) switch, since both route through here.
+        civInfo.addNotification(
+            "We have entered a period of Anarchy! No Production or Science for [$turns] turns.",
+            NotificationCategory.General
+        )
         // Mirror the trigger path of any "<for [N] turns>" unique: the timing-conditional handler in
         // UniqueTriggerActivation converts these to TemporaryUniques regardless of their UniqueType.
         for (text in listOf("[-100]% Production <for [$turns] turns>", "[-100]% Science <for [$turns] turns>")) {
