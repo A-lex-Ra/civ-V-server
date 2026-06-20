@@ -291,6 +291,45 @@ class TourismManagerTest {
         )
     }
 
+    @Test
+    fun `an outgoing trade route to the target raises the multiplier, but an incoming one does not`() {
+        val viewer = addMajorCiv()
+        val rival = addMajorCiv()
+        val third = addMajorCiv()
+
+        // A route the viewer owns, from its city to the rival's city, counts (our tourism flows to them).
+        addTradeRoute(viewer, rival)
+        assertEquals(
+            "An outgoing trade route to the target must add +0.25 to the base 1.0",
+            1.25f, viewer.tourism.getTourismMultiplierAgainst(rival), 0.0001f
+        )
+        // It is NOT a blanket bonus: an unrelated third civ gets nothing from this route.
+        assertEquals(
+            "A route to one civ must not boost tourism toward another",
+            1f, viewer.tourism.getTourismMultiplierAgainst(third), 0.0001f
+        )
+
+        // A route the THIRD civ owns toward us is INCOMING — it carries THEIR tourism to us, not ours to
+        // them, so it must NOT raise OUR multiplier against them (directional, not either-direction).
+        addTradeRoute(third, viewer)
+        assertEquals(
+            "An incoming trade route (owned by the target, toward us) must NOT add the bonus",
+            1f, viewer.tourism.getTourismMultiplierAgainst(third), 0.0001f
+        )
+    }
+
+    /** Record an international route owned by [owner] from its first city to [dest]'s first city. */
+    private fun addTradeRoute(owner: Civilization, dest: Civilization) {
+        testGame.gameInfo.tradeRouteManager.connections.add(
+            com.unciv.logic.trade.TradeRouteConnection().apply {
+                originCityId = owner.cities.first().id
+                destinationCityId = dest.cities.first().id
+                ownerCivId = owner.civID
+                type = com.unciv.logic.trade.TradeRouteType.Land
+            }
+        )
+    }
+
     // endregion
 
     /**

@@ -86,13 +86,12 @@ class TourismManager : IsPartOfGameInfoSerialization {
      *    neither / one-sided → no change.
      *  - **Declaration of Friendship** → `+0.25`.
      *  - **Research Agreement** active → `+0.25`.
+     *  - **International trade route** that THIS civ established TO the target → `+0.25` (Phase 3 ITR):
+     *    a route carries its origin civ's tourism to the destination, so only our own outgoing routes count.
      *  - Plus any registered [tourismMultiplierContributors] (D4 / Phase 2c theming seam).
      *  - Final result is clamped at `≥ 0`.
      *
      * Unmet rivals (no [DiplomacyManager]) contribute none of the diplomacy factors, leaving base 1.0.
-     *
-     * TODO(Phase 3 ITR): add a trade-route tourism bonus once city-to-city routes exist. There is no
-     *   native city↔city internal-trade-route system yet (Tier C), so we do NOT fabricate that signal.
      */
     @Readonly
     fun getTourismMultiplierAgainst(target: Civilization): Float {
@@ -116,11 +115,30 @@ class TourismManager : IsPartOfGameInfoSerialization {
         if (sharesMajorityReligionWith(target))
             multiplier += SHARED_RELIGION_BONUS
 
+        if (hasTradeRouteTo(target))
+            multiplier += TRADE_ROUTE_BONUS
+
         multiplier += ideologyModifierAgainst(target)
 
         multiplier += tourismMultiplierContributors.sumOf { it(target).toDouble() }.toFloat()
 
         return max(0f, multiplier)
+    }
+
+    /**
+     * Whether THIS civ has established an International Trade Route whose destination is one of [target]'s
+     * cities. A trade route carries its origin civ's tourism to the destination, so the bonus is
+     * directional — only our own outgoing routes to the target count, NOT a route the target sends to us.
+     * Reads the authoritative [com.unciv.logic.trade.TradeRouteManager] registry.
+     */
+    @Readonly
+    private fun hasTradeRouteTo(target: Civilization): Boolean {
+        val manager = civInfo.gameInfo.tradeRouteManager
+        return manager.connections.any { c ->
+            if (c.ownerCivId != civInfo.civID) return@any false
+            val dest = manager.getDestinationCity(c) ?: return@any false
+            dest.civ.civID == target.civID
+        }
     }
 
     /** Mirrors `DiplomacyManager.believesSameReligion` (which is private): true iff this civ has a
@@ -209,5 +227,6 @@ class TourismManager : IsPartOfGameInfoSerialization {
         private const val DIFFERENT_IDEOLOGY_PENALTY = -0.25f
         private const val DECLARATION_OF_FRIENDSHIP_BONUS = 0.25f
         private const val RESEARCH_AGREEMENT_BONUS = 0.25f
+        private const val TRADE_ROUTE_BONUS = 0.25f
     }
 }
