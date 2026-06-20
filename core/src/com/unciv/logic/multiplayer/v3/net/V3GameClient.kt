@@ -132,8 +132,12 @@ class V3GameClient(
             is GameFrame.CommandRejected -> {
                 // Surface the authority's rejection. Previously this was swallowed silently (onRejection
                 // is unset for a plain joiner and predictiveView is null), so a refused command just
-                // "reverted" on the next snapshot with no trace anywhere. Always log it.
-                Log.debug("V3GameClient: command REJECTED by authority (seq %s): %s", payload.seq, payload.reason)
+                // "reverted" on the next snapshot with no trace anywhere.
+                // Log.error (NOT debug): the desktop fat jar runs as a "release" build where Log.debug is
+                // compiled out at runtime (DesktopLogBackend.isRelease()==true unless -ea/-DnoLog), so a
+                // debug line would never print during normal multiplayer testing. A rejection is an
+                // anomaly the player needs to see in every build → error-level.
+                Log.error("V3GameClient: command REJECTED by authority (seq %s): %s", payload.seq, payload.reason)
                 lastRejection = payload
                 predictiveView?.onCommandRejected(payload.seq, payload.reason)
                 onRejection?.invoke(payload)

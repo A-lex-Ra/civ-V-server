@@ -228,6 +228,21 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
     /** Total of each turn Science during Research Agreement */
     internal var totalOfScienceDuringRA = 0
 
+    /** multiplayer-v3 VIEW-ONLY: the authoritative tribute-modifier breakdown (gold / worker) the host
+     * computed on the full CANONICAL state and stamped onto this CITY-STATE → viewer manager during
+     * [com.unciv.logic.multiplayer.v3.visibility.PlayerViewProjector] projection.
+     *
+     * Tribute willingness ([com.unciv.logic.civilization.diplomacy.CityStateFunctions.getTributeModifiers])
+     * is computed from global military force rankings and the military near the city-state — exactly the
+     * data the filtered view hides (redactUnits / redactCities / scrubCivSecrets). A client (and the host's
+     * own loopback view) would therefore compute an INFLATED willingness and offer a tribute the authority
+     * then refuses. The diplomacy UI reads these instead of recomputing whenever in a v3 game.
+     *
+     * Null everywhere except on a projected city-state→viewer manager: canonical / single-player never set
+     * them, so they serialize as absent there. LinkedHashMap to preserve the modifier display order. */
+    var viewTributeGoldModifiers: LinkedHashMap<String, Int>? = null
+    var viewTributeWorkerModifiers: LinkedHashMap<String, Int>? = null
+
     /**
      * How quickly do we forget past relationships?
      * 
@@ -272,6 +287,10 @@ class DiplomacyManager() : IsPartOfGameInfoSerialization {
         toReturn.flagsCountdown.putAll(flagsCountdown)
         toReturn.diplomaticModifiers.putAll(diplomaticModifiers)
         toReturn.totalOfScienceDuringRA = totalOfScienceDuringRA
+        // v3 view-only tribute willingness — null on canonical, but copy defensively so a clone of a
+        // *projected* view (e.g. client-side) keeps the authoritative breakdown the UI relies on.
+        toReturn.viewTributeGoldModifiers = viewTributeGoldModifiers?.let { LinkedHashMap(it) }
+        toReturn.viewTributeWorkerModifiers = viewTributeWorkerModifiers?.let { LinkedHashMap(it) }
         toReturn.smoothedOpinionOfOtherCiv = smoothedOpinionOfOtherCiv
         toReturn.cachedSmoothedOpinionOfOtherCiv = cachedSmoothedOpinionOfOtherCiv
         return toReturn

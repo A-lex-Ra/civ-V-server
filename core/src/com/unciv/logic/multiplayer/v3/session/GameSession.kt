@@ -144,7 +144,11 @@ class GameSession(
             // refused. Without it a rejected command was silently dropped (the issuer only saw its
             // optimistic change "revert" on the next snapshot, with nothing in any log). Names the player,
             // the acting civ, the command type and the reason.
-            Log.debug("v2 command REJECTED: player=%s civ=%s command=%s seq=%s reason=%s",
+            // Log.error (NOT debug): the desktop fat jar runs as a "release" build, where Log.debug is
+            // compiled out at runtime (DesktopLogBackend.isRelease()==true unless -ea/-DnoLog is passed).
+            // A rejected authoritative command means the client's optimistic move and the authority
+            // disagreed — an anomaly worth seeing in EVERY build, so error-level guarantees it prints.
+            Log.error("v2 command REJECTED: player=%s civ=%s command=%s seq=%s reason=%s",
                 frame.playerId, civId, frame.command::class.simpleName, frame.seq, e.message)
             outbound(frame.playerId, GameFrame.CommandRejected(frame.seq, e.message ?: "Command rejected"))
         }

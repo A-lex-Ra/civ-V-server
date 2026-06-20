@@ -158,13 +158,18 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
 
         val nextTurnStats = civInfo.stats.statsForNextTurn
 
+        // ITR gold/science is banked directly (not via CityStats), so add it to the headline rates so they
+        // match the teardowns below, which list it as its own source.
+        val itrStats = if (tradeRoutesEnabled)
+            civInfo.gameInfo.tradeRouteManager.getStatsPerTurnForDisplay(civInfo) else Stats()
+
         goldLabel.setText(civInfo.gold.tr())
-        goldPerTurnLabel.setText(rateLabel(nextTurnStats.gold))
+        goldPerTurnLabel.setText(rateLabel(nextTurnStats.gold + itrStats.gold))
 
         if (tradeRoutesEnabled)
             tradeRoutesLabel.setText(countInternationalRoutes(civInfo).tr())
 
-        scienceLabel.setText(rateLabel(nextTurnStats.science))
+        scienceLabel.setText(rateLabel(nextTurnStats.science + itrStats.science))
 
         happinessLabel.setText(getHappinessText(civInfo))
 
@@ -224,6 +229,14 @@ internal class WorldScreenTopBarStats(topbar: WorldScreenTopBar) : ScalingTableW
             if (value == 0f) continue
             total += value
             sb.append("\n{").append(source).append("}: ").append(signed(value))
+        }
+        // ITR gold/science is banked directly (not in the stat map above), so add it as its own line.
+        if (tradeRoutesEnabled) {
+            val itrValue = civInfo.gameInfo.tradeRouteManager.getStatsPerTurnForDisplay(civInfo)[stat]
+            if (itrValue != 0f) {
+                total += itrValue
+                sb.append("\n{International Trade Routes}: ").append(signed(itrValue))
+            }
         }
         sb.append("\n{Total}: ").append(signed(total))
         return sb.toString()

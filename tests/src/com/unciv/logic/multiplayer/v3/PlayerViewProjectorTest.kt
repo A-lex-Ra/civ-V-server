@@ -351,6 +351,65 @@ class PlayerViewProjectorTest {
         )
     }
 
+    @Test
+    fun tributeWillingnessIsComputedOnCanonicalAndStampedOnCityStateTowardViewerOnly() {
+        // v3: the diplomacy UI can't compute tribute willingness on the filtered view (it hides rival
+        // military), so the projector computes the modifier breakdown on the CANONICAL state and stamps it
+        // onto the city-state→viewer DiplomacyManager. Here civB has a real army on a far tile A cannot see:
+        // it counts toward willingness canonically but would be scrubbed from A's view — so if the projector
+        // mistakenly computed on the redacted clone, the stamped values would diverge from the canonical
+        // ones and the equals-checks below would fail.
+        testGame.addUnit("Warrior", civA, centerTile)
+
+        val cityState = testGame.addCiv(cityStateType = "Cultured")
+        testGame.addCity(cityState, testGame.tileMap[2, 0]) // a capital so willingness is a full breakdown
+        civA.diplomacyFunctions.makeCivilizationsMeet(cityState)
+        civB.diplomacyFunctions.makeCivilizationsMeet(cityState)
+
+        // civB's army: spread over the farthest empty tiles so it's clearly stronger than civA AND fogged
+        // for A (each tile is well beyond A's sight from the center) — so it counts canonically but is
+        // scrubbed from A's view.
+        val fogTiles = testGame.tileMap.values
+            .filter { it != centerTile && it.militaryUnit == null && it.civilianUnit == null && it.getCity() == null }
+            .sortedByDescending { it.aerialDistanceTo(centerTile) }
+            .take(3)
+        for (t in fogTiles) testGame.addUnit("Warrior", civB, t)
+
+        testGame.gameInfo.civilizations.forEach { it.cache.updateOurTiles() }
+        assertTrue("Precondition: civB must have a fogged far army", fogTiles.isNotEmpty())
+        fogTiles.forEach { assertFalse("Precondition: civB's far army must be fogged for A", it.isVisible(civA)) }
+
+        // Canonical expectations (full military visibility).
+        val expectedGold = cityState.cityStateFunctions
+            .getTributeModifiers(civA, demandingWorker = false, requireWholeList = true)
+        val expectedWorker = cityState.cityStateFunctions
+            .getTributeModifiers(civA, demandingWorker = true, requireWholeList = true)
+
+        val viewForA = PlayerViewProjector.projectFor(testGame.gameInfo, civA.civID)
+        val csInView = projectedCiv(viewForA, cityState.civID)
+        val towardViewer = csInView.getDiplomacyManager(civA.civID)!!
+
+        assertEquals(
+            "Stamped gold-tribute modifiers must equal the CANONICAL breakdown (not the redacted view's)",
+            HashMap(expectedGold), HashMap(towardViewer.viewTributeGoldModifiers!!)
+        )
+        assertEquals(
+            "Stamped worker-tribute modifiers must equal the CANONICAL breakdown",
+            HashMap(expectedWorker), HashMap(towardViewer.viewTributeWorkerModifiers!!)
+        )
+
+        // Only the viewer's own standing is stamped — a third party's tribute willingness is never shipped.
+        val towardThirdParty = csInView.getDiplomacyManager(civB.civID)!!
+        assertNull("Tribute willingness toward a third party must NOT be stamped",
+            towardThirdParty.viewTributeGoldModifiers)
+        assertNull("Tribute willingness toward a third party must NOT be stamped",
+            towardThirdParty.viewTributeWorkerModifiers)
+
+        // The canonical game must be left untouched (these are view-only fields).
+        assertNull("Projection must not stamp willingness onto the canonical city-state manager",
+            cityState.getDiplomacyManager(civA)!!.viewTributeGoldModifiers)
+    }
+
     // endregion
 
     // region Priority 2 — seen enemy city interior

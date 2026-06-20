@@ -118,6 +118,7 @@ object PlayerViewProjector {
         redactSeenEnemyCityInteriors(projected, viewingCivId, visibility)
         redactBarbarianEncampments(projected, visibility)
         redactOtherCivSecrets(projected, viewingCivId)
+        projectTributeWillingness(gameInfo, projected, viewingCivId)
         redactTradeRoutes(projected, viewingCivId)
         redactCongressSecrets(projected, viewingCivId)
         redactGreatWorkPlacements(projected, viewingCivId, visibility)
@@ -382,6 +383,49 @@ object PlayerViewProjector {
         //   tiles. It cannot simply be nulled (it is a non-null lateinit the client's setTransients
         //   requires) — fully hiding it would mean substituting a neutral placeholder terrain and is
         //   left for a follow-up to avoid corrupting the cloned map's structural invariants here.
+    }
+
+    /**
+     * v3 — **authoritative tribute willingness** (faithful diplomacy UI on the filtered view).
+     *
+     * The city-state diplomacy screen decides whether a "Take gold / Take worker" tribute is available from
+     * [com.unciv.logic.civilization.diplomacy.CityStateFunctions.getTributeModifiers], which sums the global
+     * military force ranking and the military *near* the city-state. Those inputs are precisely what the
+     * projection hides ([redactUnits] removes fogged rival units, [redactCities] removes unseen rival cities,
+     * [scrubCivSecrets] zeroes rival economies) — so a client, AND the host's own loopback view, would compute
+     * an INFLATED willingness, show the tribute button enabled, and have the authority refuse the command (the
+     * gold/influence then "reverts" on the next snapshot). The client cannot fix this itself: it legitimately
+     * lacks the military data.
+     *
+     * So compute the breakdown HERE, on the **canonical** [canonical] game (full transients, real military),
+     * and stamp it onto the projected CITY-STATE → viewer [DiplomacyManager]. The UI reads
+     * [com.unciv.logic.civilization.diplomacy.DiplomacyManager.viewTributeGoldModifiers] /
+     * [com.unciv.logic.civilization.diplomacy.DiplomacyManager.viewTributeWorkerModifiers] instead of
+     * recomputing whenever it is in a v3 game.
+     *
+     * Only for city-states the viewer has **met** — `getTributeModifiers` requires the city-state→viewer
+     * manager to exist (it reads its influence with `!!`), and a met city-state's influence already lives in
+     * exactly that manager (preserved by [scrubCivSecrets]). Reads canonical; writes the clone.
+     */
+    private fun projectTributeWillingness(canonical: GameInfo, projected: GameInfo, viewerId: String) {
+        val viewerCanonical = canonical.getCivilizationOrNull(viewerId) ?: return
+        for (csCanonical in canonical.civilizations) {
+            if (!csCanonical.isCityState) continue
+            // Gate on the city-state having met the viewer (diplomacy keyed by civID == viewerId). Without
+            // this, getTributeModifiers' `getDiplomacyManager(demandingCiv)!!` would throw.
+            if (!csCanonical.diplomacy.containsKey(viewerId)) continue
+
+            val goldMods = csCanonical.cityStateFunctions
+                .getTributeModifiers(viewerCanonical, demandingWorker = false, requireWholeList = true)
+            val workerMods = csCanonical.cityStateFunctions
+                .getTributeModifiers(viewerCanonical, demandingWorker = true, requireWholeList = true)
+
+            // The projected city-state still exists (we never remove a civ) and keeps its diplomacy map.
+            val projectedDip = projected.getCivilizationOrNull(csCanonical.civID)
+                ?.diplomacy?.get(viewerId) ?: continue
+            projectedDip.viewTributeGoldModifiers = LinkedHashMap(goldMods)
+            projectedDip.viewTributeWorkerModifiers = LinkedHashMap(workerMods)
+        }
     }
 
     /**

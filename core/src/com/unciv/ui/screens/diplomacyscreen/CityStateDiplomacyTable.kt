@@ -432,9 +432,24 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
     private fun getDemandTributeTable(otherCiv: Civilization): Table {
         val diplomacyTable = getCityStateDiplomacyTableHeader(otherCiv)
         diplomacyTable.addSeparator()
+
+        // multiplayer-v3: the filtered view deliberately hides rival military, so it CANNOT compute tribute
+        // willingness correctly — the authority would refuse a tribute this screen wrongly offered. The host
+        // ships the authoritative breakdown on the city-state→viewer DiplomacyManager during projection; use
+        // it when present. In single-player (and any non-v3 view) these fields are null, so we fall back to
+        // computing locally exactly as before. See PlayerViewProjector.projectTributeWillingness.
+        val csToViewerDip = otherCiv.getDiplomacyManager(viewingCiv)
+        val v3GoldModifiers = csToViewerDip?.viewTributeGoldModifiers
+        val v3WorkerModifiers = csToViewerDip?.viewTributeWorkerModifiers
+        val goldWillingness = v3GoldModifiers?.values?.sum()
+            ?: otherCiv.cityStateFunctions.getTributeWillingness(viewingCiv, demandingWorker = false)
+        val workerWillingness = v3WorkerModifiers?.values?.sum()
+            ?: otherCiv.cityStateFunctions.getTributeWillingness(viewingCiv, demandingWorker = true)
+
         diplomacyTable.add("Tribute Willingness".toLabel()).row()
         val modifierTable = Table()
-        val tributeModifiers = otherCiv.cityStateFunctions.getTributeModifiers(viewingCiv, requireWholeList = true)
+        val tributeModifiers: Map<String, Int> = v3GoldModifiers
+            ?: otherCiv.cityStateFunctions.getTributeModifiers(viewingCiv, requireWholeList = true)
         for (item in tributeModifiers) {
             val color = if (item.value >= 0) Color.GREEN else Color.RED
             modifierTable.add(item.key.toLabel(color))
@@ -460,7 +475,7 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
             diplomacyScreen.rightSideTable.add(ScrollPane(getCityStateDiplomacyTable(otherCiv)))
         }
         diplomacyTable.add(demandGoldButton).row()
-        if (otherCiv.cityStateFunctions.getTributeWillingness(viewingCiv, demandingWorker = false) < 0)   demandGoldButton.disable()
+        if (goldWillingness < 0)   demandGoldButton.disable()
 
         val demandWorkerButton = "Take worker (-50 Influence)".toTextButton()
         demandWorkerButton.onClick {
@@ -476,7 +491,7 @@ class CityStateDiplomacyTable(private val diplomacyScreen: DiplomacyScreen) {
             diplomacyScreen.rightSideTable.add(ScrollPane(getCityStateDiplomacyTable(otherCiv)))
         }
         diplomacyTable.add(demandWorkerButton).row()
-        if (otherCiv.cityStateFunctions.getTributeWillingness(viewingCiv, demandingWorker = true) < 0)    demandWorkerButton.disable()
+        if (workerWillingness < 0)    demandWorkerButton.disable()
 
         val backButton = "Back".toTextButton()
         backButton.onClick {

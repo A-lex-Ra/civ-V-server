@@ -7,6 +7,7 @@ import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.NotificationCategory
 import com.unciv.logic.map.BFS
 import com.unciv.logic.map.mapunit.MapUnit
+import com.unciv.models.stats.Stats
 import yairm210.purity.annotations.Readonly
 
 /**
@@ -229,6 +230,39 @@ class TradeRouteManager : IsPartOfGameInfoSerialization {
                     destCity.religion.addPressure(yields.originReligionName, yields.religionPressure)
             }
         }
+    }
+
+    /**
+     * The per-turn **civ-level** ITR yields [civ] receives, for the top-bar stat breakdowns
+     * ([com.unciv.ui.screens.worldscreen.topbar.WorldScreenTopBarStats]):
+     *  - **gold** = owner gold from routes [civ] established + destination-owner gold from foreign
+     *    international routes ending in [civ]'s cities (the two amounts [applyYieldsForOwner] banks via
+     *    `addGold`),
+     *  - **science** = owner catch-up science from [civ]'s own routes (banked via `tech.addScience`, and only
+     *    when [civ] has a city — a city-less civ has no current research, matching the banking guard).
+     *
+     * Display-only: these are banked DIRECTLY (D4), NOT through CityStats/`statsForNextTurn`, so this affects
+     * no AI/trade logic — it only lets the player see where the per-turn numbers come from. Other ITR yields
+     * (Food/Production to a destination city, religion pressure) are city-level deliveries, not civ stats, so
+     * they are out of scope here — see `docs/bnw-known-gaps.md` (gap 2.2). Returns 0 for a stat on a filtered
+     * view that hides a route's other endpoint (computeYields → EMPTY), matching what such a view can show.
+     */
+    @Readonly
+    fun getStatsPerTurnForDisplay(civ: Civilization): Stats {
+        val stats = Stats()
+        val hasCities = civ.cities.isNotEmpty()
+        for (connection in connections) {
+            if (connection.ownerCivId == civ.civID) {
+                val yields = TradeRouteYields.computeYields(connection, gameInfo)
+                stats.gold += yields.ownerGold
+                if (hasCities) stats.science += yields.ownerScience
+            } else {
+                val dest = getDestinationCity(connection)
+                if (dest != null && dest.civ.civID == civ.civID)
+                    stats.gold += TradeRouteYields.computeYields(connection, gameInfo).destOwnerGold
+            }
+        }
+        return stats
     }
 
     //endregion

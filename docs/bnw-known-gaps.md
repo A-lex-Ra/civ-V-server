@@ -57,6 +57,43 @@ but two civ-specific reciprocal bonuses are still TODO flavour text:
   still approximated by a generic `[+10]% Spread Religion Strength` proxy (religion spread itself
   works via `TradeRouteYields.RELIGION_PRESSURE`, but the 2× multiplier is unmodeled).
 
+### 2.2 ✅ ITR yields are banked *directly*, so they bypass the stat pipeline · **Low**
+International-Trade-Route yields are **not** routed through `CityStats`/`statsForNextTurn`. The
+authority banks them in their own pass — owner gold via `civ.addGold`, owner catch-up science via
+`tech.addScience`, destination-owner gold to the other civ, and internal Food/Production + religion
+pressure delivered straight to the destination **city**
+([TradeRouteManager.applyYieldsForOwner](../core/src/com/unciv/logic/trade/TradeRouteManager.kt#L209),
+called once per owner from [TurnManager.kt:332](../core/src/com/unciv/logic/civilization/managers/TurnManager.kt#L332),
+*after* the `statsForNextTurn` gold/science banking at line 324).
+
+This is deliberate (design decision **D4**): a route is a *bilateral* contract whose yield depends on
+**both** endpoints and is split between **two** civs, which does not fit the per-city→civ aggregation
+`getStatMapForNextTurn` is built on; folding it in would either double-bank (banked once by the stat
+sum at line 324 and again by the ITR pass) or require ITR gold to ripple into AI income estimates,
+gold-per-turn trade offers and the treasury-deficit science penalty — an economy change, not a
+display change. The treasury value (`civInfo.gold`) is always correct; only its *attribution* lives
+outside the stat map. Consequences that remain:
+
+- **AI / trade blindness.** `statsForNextTurn.gold`/`.science` (read by `NextTurnAutomation`,
+  `TradeEvaluation`, the GPT-offer cap in `TradeLogic`, the disband-when-broke loop, and the
+  treasury-deficit→science penalty) does **not** include ITR yields. The AI under-counts ITR income
+  when valuing trades and decisions. *Accepted* — fixing it means the economy ripple above.
+- **City-level deliveries are unsurfaced.** Internal Food/Production and religion pressure land
+  directly in the destination city's food store / current construction / religion pressure, bypassing
+  `CityStats` too, so no city screen attributes them to "trade routes". (Out of scope for a top-bar
+  fix — these are city stats, not civ stats.)
+- **Filtered-view attribution.** On a multiplayer-v3 client whose filtered snapshot hides a route's
+  far endpoint, the per-turn **display** of that route's yield reads 0 (`computeYields` → `EMPTY`),
+  even though the authority banked the real amount and the treasury total is correct.
+
+**Partially addressed:** the civ-level yields (owner gold + incoming destination gold; owner science)
+are now shown in the top-bar Gold/Science **teardowns** and folded into the headline `+/turn` so the
+two agree — display-only, via
+[`TradeRouteManager.getStatsPerTurnForDisplay`](../core/src/com/unciv/logic/trade/TradeRouteManager.kt#L191)
+read by [WorldScreenTopBarStats](../core/src/com/unciv/ui/screens/worldscreen/topbar/WorldScreenTopBarStats.kt#L218)
+(an "International Trade Routes" line). The AI/trade blindness, the city-level Food/Production/religion
+attribution, and the filtered-view 0 are the parts left open.
+
 ---
 
 ## 3. Suspected / needs runtime verification
