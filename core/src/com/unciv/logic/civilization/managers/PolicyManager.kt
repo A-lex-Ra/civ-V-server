@@ -21,9 +21,9 @@ class PolicyManager : IsPartOfGameInfoSerialization {
          *  to indicate the "surplus" policies - those must have been adopted as free policies. */
         const val FREE_POLICY_MARKER = -1
 
-        /** BNW Phase 2a — Civ-V base anarchy length (turns) on Standard speed when switching
-         *  ideology, before the game-speed modifier. */
-        const val BASE_ANARCHY_TURNS = 5
+        /** BNW — Civ V applies a flat one-turn Anarchy when switching ideology (all cities stop
+         *  working for a single turn), regardless of game speed. */
+        const val BASE_ANARCHY_TURNS = 1
     }
 
     @Transient
@@ -36,6 +36,11 @@ class PolicyManager : IsPartOfGameInfoSerialization {
 
     var freePolicies = 0
     var storedCulture = 0
+
+    /** BNW: how many Early-Adopter free tenets the civ received for its CURRENT ideology (2 for the
+     *  1st civ to adopt it, 1 for the 2nd, else 0). Recorded in [adopt] when an ideology branch start
+     *  is adopted; [switchIdeology] subtracts it from the free re-picks (the Civ V rule). */
+    var ideologyEarlyAdopterTenets = 0
     internal val adoptedPolicies = HashSet<String>()
     private var numberOfAdoptedPolicies = 0
 
@@ -112,6 +117,7 @@ class PolicyManager : IsPartOfGameInfoSerialization {
         toReturn.numberOfAdoptedPolicies = numberOfAdoptedPolicies
         toReturn.adoptedPolicies.addAll(adoptedPolicies)
         toReturn.freePolicies = freePolicies
+        toReturn.ideologyEarlyAdopterTenets = ideologyEarlyAdopterTenets
         toReturn.shouldOpenPolicyPicker = shouldOpenPolicyPicker
         toReturn.storedCulture = storedCulture
         toReturn.cultureOfLast8Turns = cultureOfLast8Turns.clone()
@@ -269,6 +275,21 @@ class PolicyManager : IsPartOfGameInfoSerialization {
         adoptedPolicies.add(policy.name)
         addPolicyToTransients(policy)
 
+        // BNW: when an ideology branch start is adopted, record how many Early-Adopter free tenets it
+        // grants — 2 for the 1st civ to adopt this ideology, 1 for the 2nd, 0 afterwards — mirroring
+        // the branch's three Early-Adopter event triggers. [switchIdeology] subtracts this from the
+        // free re-picks so the head start isn't carried across a switch (the Civ V rule).
+        if (policy is PolicyBranch && policy.isIdeology) {
+            val priorAdopters = civInfo.gameInfo.civilizations.count {
+                it !== civInfo && it.policies.isAdopted(policy.name)
+            }
+            ideologyEarlyAdopterTenets = when (priorAdopters) {
+                0 -> 2
+                1 -> 1
+                else -> 0
+            }
+        }
+
         if (!branchCompletion) {
             val branch = policy.branch
             if (branch.policies.count { isAdopted(it.name) } == branch.policies.size - 1) { // All done apart from branch completion
@@ -372,12 +393,11 @@ class PolicyManager : IsPartOfGameInfoSerialization {
      *     tenet *picks*, not culture (see step 3).
      *  2. **Adopt the new ideology's branch start** via [adopt] (runs its triggerable uniques and the
      *     standard adoption side effects), granted free of culture cost since a switch isn't a purchase.
-     *  3. **Re-grant free tenet picks** equal to the number of tenets abandoned in step 1 — Civ V: "you
-     *     get to pick a number of Tenets in your new Ideology equal to the number of Tenets you had".
-     *     The picks are added to [freePolicies]; the player / AI spends them in the new ideology's
-     *     levels. (Civ V additionally subtracts any Early-Adopter free tenets received for the old
-     *     ideology; that refinement is not modeled — the full prior count is re-granted.)
-     *  4. **Enter anarchy** for [getAnarchyTurns] turns (scaled by game speed), applying a civ-wide
+     *  3. **Re-grant free tenet picks** equal to the tenets abandoned in step 1 MINUS the Early-Adopter
+     *     free tenets the civ received for the old ideology ([ideologyEarlyAdopterTenets]) — Civ V: "you
+     *     get to pick a number of Tenets in your new Ideology equal to the number of Tenets you had,
+     *     minus any Early Adopter tenets". The picks are added to [freePolicies].
+     *  4. **Enter anarchy** for [getAnarchyTurns] turns (Civ V's flat one turn), applying a civ-wide
      *     `[-100]% Production` / `[-100]% Science` via the engine's own temporary-unique machinery
      *     (see [com.unciv.logic.civilization.managers.PublicOpinionManager.applyAnarchy]).
      */
@@ -396,21 +416,24 @@ class PolicyManager : IsPartOfGameInfoSerialization {
             }
         }
 
+        // Civ V re-grants picks equal to the abandoned tenets MINUS the Early-Adopter free tenets the
+        // civ received for the old ideology (so the early-adopter head start isn't carried across).
+        // Read the recorded count BEFORE adopting the new branch, which overwrites it for the new one.
+        val repicks = (tenetsToRepick - ideologyEarlyAdopterTenets).coerceAtLeast(0)
+
         // 2. Adopt the new ideology's branch start (granted free — a switch is not a culture purchase).
         freePolicies++
         adopt(toBranch)
 
-        // 3. Re-grant free tenet picks equal to the abandoned tenet count (the Civ V recompute).
-        freePolicies += tenetsToRepick
+        // 3. Re-grant the free tenet picks computed above.
+        freePolicies += repicks
 
-        // 4. Enter anarchy (no production / research) for the scaled number of turns.
+        // 4. Enter anarchy (no production / research) for the (Civ V flat one-turn) duration.
         civInfo.publicOpinion.applyAnarchy(getAnarchyTurns())
     }
 
-    /** Number of anarchy turns when switching ideology, scaled by game speed (the same way
-     *  [com.unciv.logic.civilization.managers.TurnManager.getTurnsBeforeRevolt] scales). Civ V uses
-     *  a base of ~5 turns on Standard speed. */
+    /** Number of anarchy turns when switching ideology. Civ V applies a flat one-turn Anarchy on the
+     *  switch (all cities stop working for a single turn), regardless of game speed. */
     @Readonly
-    fun getAnarchyTurns(): Int =
-        (BASE_ANARCHY_TURNS * civInfo.gameInfo.speed.modifier.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
+    fun getAnarchyTurns(): Int = BASE_ANARCHY_TURNS
 }

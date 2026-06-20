@@ -262,6 +262,7 @@ object PlayerViewProjector {
         civ.policies.getAdoptedPolicies().clear()
         civ.policies.freePolicies = 0
         civ.policies.storedCulture = 0
+        civ.policies.ideologyEarlyAdopterTenets = 0
         civ.policies.shouldOpenPolicyPicker = false
 
         // --- Ideological public opinion (BNW Phase 2a, authority-only state — D2) ---
