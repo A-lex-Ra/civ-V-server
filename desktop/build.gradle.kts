@@ -1,7 +1,12 @@
 
+import com.badlogic.gdx.graphics.Texture
+import com.badlogic.gdx.tools.texturepacker.TexturePacker
+import com.badlogic.gdx.utils.Json
 import com.google.common.io.Files
 import com.unciv.build.BuildConfig
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.nio.file.Files as NioFiles
+import java.nio.file.attribute.BasicFileAttributes
 
 plugins {
     id("kotlin")
@@ -70,6 +75,65 @@ tasks.register<Jar>("dist") { // Compiles the jar file
 
     manifest {
         attributes(mapOf("Main-Class" to mainClassName, "Specification-Version" to BuildConfig.appVersion))
+    }
+}
+
+// Headless regeneration of the committed split atlases (../android/assets/<Name>.atlas + .png) from the
+// ../android/Images.<Name>/ source dirs. Mirrors what DesktopLauncher's ImagePacker does on a dev run -
+// same 2048 page size / padding, and the `*Icons` folders get a Linear magnification filter (matching the
+// committed atlas headers) while others keep MipMapLinearLinear. Only repacks atlases whose source images
+// are newer than the atlas, so unchanged categories stay byte-identical. The fat-jar `dist` bundles these
+// committed atlases (it does NOT pack), so run this after adding/removing source PNGs:
+//     ./gradlew :desktop:packImages
+tasks.register("packImages") {
+    val imageExtensions = listOf("png", "jpg", "jpeg")
+    val sourceRoot = file("../android")
+    val outDir = assetsDir
+
+    fun defaultSettings(linearMag: Boolean) = TexturePacker.Settings().apply {
+        maxWidth = 2048
+        maxHeight = 2048
+        combineSubdirectories = true
+        pot = true
+        fast = true
+        paddingX = 8
+        paddingY = 8
+        duplicatePadding = true
+        filterMin = Texture.TextureFilter.MipMapLinearLinear
+        filterMag = if (linearMag) Texture.TextureFilter.Linear else Texture.TextureFilter.MipMapLinearLinear
+    }
+
+    fun isOutdated(input: File, atlasName: String): Boolean {
+        val atlasFile = File(outDir, "$atlasName.atlas")
+        if (!atlasFile.exists() || !File(outDir, "$atlasName.png").exists()) return true
+        val atlasModTime = atlasFile.lastModified()
+        return input.walkTopDown().any { f ->
+            if (!f.isFile) return@any false
+            if (f.extension !in imageExtensions && f.name != "TexturePacker.settings") return@any false
+            val attr = NioFiles.readAttributes(f.toPath(), BasicFileAttributes::class.java)
+            f.lastModified() > atlasModTime || attr.creationTime().toMillis() > atlasModTime
+        }
+    }
+
+    doLast {
+        // Each ../android/Images.<Name> folder -> <Name>.atlas (a plain "Images" folder would map to "game",
+        // but this fork uses only the split layout, so there is none).
+        val folders = sourceRoot.listFiles()!!
+            .filter { it.isDirectory && it.nameWithoutExtension == "Images" && it.name != "Images" }
+            .sortedBy { it.name }
+        var packed = 0
+        for (folder in folders) {
+            val atlasName = folder.extension  // "Images.NationIcons" -> "NationIcons"
+            if (!isOutdated(folder, atlasName)) continue
+            val settingsFile = File(folder, "TexturePacker.settings")
+            val settings = if (settingsFile.exists())
+                Json().fromJson(TexturePacker.Settings::class.java, settingsFile.reader(Charsets.UTF_8))
+            else defaultSettings(folder.name.endsWith("Icons"))
+            TexturePacker.process(settings, folder.path, outDir.path, atlasName)
+            logger.lifecycle("packImages: regenerated $atlasName.atlas")
+            packed++
+        }
+        logger.lifecycle("packImages: $packed of ${folders.size} atlas(es) regenerated")
     }
 }
 

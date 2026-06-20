@@ -306,9 +306,8 @@
 		"uniques": [
 			"Can move after attacking",
 			"[+1] Sight",
-			"Withdraws before melee combat <with [80]% chance>"
-			// TODO: Sell Exotic Goods: This unit will sell its cargo, earning Gold and XP
-			// More will be earned for selling farther from your Capital. This may only be done once with this unit.
+			"Withdraws before melee combat <with [80]% chance>",
+			"Can perform the Sell Exotic Goods action [1] times"
 		],
 		"attackSound": "cannon"
 	},

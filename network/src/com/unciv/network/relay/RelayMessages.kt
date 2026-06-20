@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: LicenseRef-Unciv-v3-ViewOnly
+// Copyright (c) 2026 Alexander Rastorguev (A-lex-Ra) <rastorguev2047@gmail.com>
+//
+// Part of the Unciv multiplayer-v3 netcode — view-only, NOT under the Mozilla
+// Public License that covers the rest of this repository. No right to use,
+// copy, modify, run, or distribute is granted without written permission;
+// permission is gladly given on request (email or GitHub issue).
+// Full terms: /LICENSE.v3  ·  License map: /LICENSING.md
+
 package com.unciv.network.relay
 
 import com.unciv.network.GameId

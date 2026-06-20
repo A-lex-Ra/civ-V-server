@@ -941,6 +941,88 @@ class CommandCatalogueTest {
 
     // endregion
 
+    // region SellExoticGoods (BNW Portuguese Nau)
+
+    /** A unit that may sell exotic goods [uses] times. */
+    private fun addExoticGoodsUnit(owner: Civilization, tile: Tile, uses: Int = 2): MapUnit {
+        val baseUnit = testGame.createBaseUnit(
+            "Civilian", "Can perform the Sell Exotic Goods action [$uses] times"
+        )
+        baseUnit.movement = 2
+        return testGame.addUnit(baseUnit.name, owner, tile)
+    }
+
+    @Test
+    fun sellExoticGoodsGrantsGoldAndXpAndSpendsTheTurn() {
+        // A tile owned by nobody (no city founded) is "foreign/neutral" — the action is allowed there.
+        val tile = testGame.tileMap[0, 0]
+        val unit = addExoticGoodsUnit(civInfo, tile)
+        unit.currentMovement = 2f
+        val goldBefore = civInfo.gold
+        val xpBefore = unit.promotions.XP
+
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.SellExoticGoods(tile.position.x, tile.position.y)
+        )
+
+        assertTrue("Selling exotic goods must grant Gold", civInfo.gold > goldBefore)
+        assertTrue("Selling exotic goods must grant XP", unit.promotions.XP > xpBefore)
+        assertEquals("The sale must spend the unit's whole turn", 0f, unit.currentMovement, 0f)
+    }
+
+    @Test
+    fun sellExoticGoodsInOwnTerritoryIsRejectedAndStateUnchanged() {
+        val tile = testGame.tileMap[0, 0]
+        testGame.addCity(civInfo, tile) // now civInfo OWNS this tile — selling here is not allowed
+        val unit = addExoticGoodsUnit(civInfo, tile)
+        unit.currentMovement = 2f
+        val goldBefore = civInfo.gold
+
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.SellExoticGoods(tile.position.x, tile.position.y)
+            )
+        }
+        assertEquals("Gold must be unchanged after a rejected sale", goldBefore, civInfo.gold)
+    }
+
+    @Test
+    fun sellExoticGoodsBeyondTheUseLimitIsRejected() {
+        val tile = testGame.tileMap[0, 0]
+        val unit = addExoticGoodsUnit(civInfo, tile, uses = 1)
+        unit.currentMovement = 2f
+        // Use the single allowed sale.
+        executor.execute(
+            testGame.gameInfo, civInfo.civID,
+            GameCommand.SellExoticGoods(tile.position.x, tile.position.y)
+        )
+        // Refund movement so ONLY the spent use-limit can block the next attempt.
+        unit.currentMovement = 2f
+        assertThrows(CommandException::class.java) {
+            executor.execute(
+                testGame.gameInfo, civInfo.civID,
+                GameCommand.SellExoticGoods(tile.position.x, tile.position.y)
+            )
+        }
+    }
+
+    @Test
+    fun sellExoticGoodsCommandRoundTripsThroughKotlinx() {
+        val command: GameCommand = GameCommand.SellExoticGoods(9, 10)
+        val decoded = com.unciv.network.serialization.relayJson.decodeFromString(
+            GameCommand.serializer(),
+            com.unciv.network.serialization.relayJson.encodeToString(GameCommand.serializer(), command)
+        )
+        assertTrue(decoded is GameCommand.SellExoticGoods)
+        decoded as GameCommand.SellExoticGoods
+        assertEquals(9, decoded.unitX)
+        assertEquals(10, decoded.unitY)
+    }
+
+    // endregion
+
     // region World Congress (BNW Phase 3 — Increment 2)
 
     /** Found the congress (era-0) and force it into the Proposing phase. */

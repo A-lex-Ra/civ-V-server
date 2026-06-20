@@ -647,6 +647,9 @@ object Battle {
 
     private fun conquerCity(city: City, attacker: MapUnitCombatant) {
         val attackerCiv = attacker.getCivInfo()
+        // Capture the city's owner BEFORE any ownership transfer below (puppet/annex), so the Assyrian
+        // tech-steal can compare the conqueror against the city's *previous* owner.
+        val formerOwner = city.civ
 
         attackerCiv.addNotification("We have conquered the city of [${city.name}]!", city.location, NotificationCategory.War, NotificationIcon.War)
 
@@ -666,6 +669,8 @@ object Battle {
                 unique.params[0].toInt() * city.cityStats.currentCityStats[Stat.valueOf(unique.params[1])].toInt()
             )
         }
+
+        stealTechFromConqueredCity(city, formerOwner, attackerCiv)
 
         if (attackerCiv.isBarbarian || attackerCiv.isOneCityChallenger()) {
             city.destroyCity(true)
@@ -688,6 +693,32 @@ object Battle {
         for (unique in attackerCiv.getTriggeredUniques(UniqueType.TriggerUponConqueringCity, gameContext)
                 + attacker.unit.getTriggeredUniques(UniqueType.TriggerUponConqueringCity, gameContext))
             UniqueTriggerActivation.triggerUnique(unique, attacker.unit)
+    }
+
+    /**
+     * BNW Assyria "Treasures of Nineveh": when the conqueror has [UniqueType.StealTechWhenConqueringCity],
+     * conquering [city] by combat steals the most advanced technology [formerOwner] had researched but the
+     * conqueror had not. Each city can be looted this way only once, ever (tracked on [City.hasProvidedConquestTech]),
+     * and only on a combat conquest — peaceful trade/gift transfers never reach this path. Deterministic
+     * (tie-broken by tech name), so the authority and an optimistically-applying client agree.
+     */
+    private fun stealTechFromConqueredCity(city: City, formerOwner: Civilization, attackerCiv: Civilization) {
+        if (city.hasProvidedConquestTech) return
+        if (formerOwner == attackerCiv) return
+        if (!attackerCiv.hasUnique(UniqueType.StealTechWhenConqueringCity)) return
+
+        val stealable = attackerCiv.gameInfo.ruleset.technologies.values
+            .filter { formerOwner.tech.isResearched(it.name) && !attackerCiv.tech.isResearched(it.name) }
+        if (stealable.isEmpty()) return // former owner is not ahead of us in any tech — nothing to steal
+
+        // Steal the most advanced (highest-cost) technology, ties broken by name for determinism.
+        val stolen = stealable.maxWithOrNull(compareBy({ it.cost }, { it.name }))!!
+        attackerCiv.tech.addTechnology(stolen.name, showNotification = false)
+        city.hasProvidedConquestTech = true
+        attackerCiv.addNotification(
+            "We have stolen [${stolen.name}] from [${formerOwner.civName}]!",
+            city.location, NotificationCategory.General, NotificationIcon.Science
+        )
     }
 
     /** Handle decision-making after city conquest, namely whether the AI should liberate, puppet,

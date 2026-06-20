@@ -279,6 +279,40 @@ class BattleTest(
     }
 
     @Test
+    fun `Assyria steals a technology from the conquered city's owner`() {
+        // given: the attacker has the Assyrian "Treasures of Nineveh" unique, and the defender knows a tech
+        // the attacker does not. The most advanced (highest-cost) such tech is the one that must be stolen.
+        val assyria = testGame.addCiv(UniqueType.StealTechWhenConqueringCity.text)
+        val cityTile = testGame.getTile(0, 1)
+        // Place the Assyrian attacker on a free neighbor BEFORE the city is founded, so the tile is still
+        // unowned (a city claims its ring; placing after would hit CannotEnterForeignLand at peace).
+        val attackerTile = cityTile.neighbors.first { it.militaryUnit == null && !it.isCityCenter() }
+        val attacker = testGame.addUnit("Warrior", assyria, attackerTile)
+        attacker.currentMovement = 2f
+
+        val defenderCity = testGame.addCity(defenderCiv, cityTile, initialPopulation = 1)
+        defenderCity.health = 1
+        val advancedTech = testGame.ruleset.technologies.values
+            .maxWithOrNull(compareBy({ it.cost }, { it.name }))!!.name
+        defenderCiv.tech.addTechnology(advancedTech, showNotification = false)
+        assertFalse("Precondition: attacker must not already know the tech",
+            assyria.tech.isResearched(advancedTech))
+
+        testGame.gameInfo.currentPlayerCiv = testGame.addCiv() // avoid the puppet-popup crash (as the conquest test does)
+        testGame.gameInfo.currentPlayer = testGame.gameInfo.currentPlayerCiv.civID
+
+        // when
+        Battle.attack(MapUnitCombatant(attacker), CityCombatant(defenderCity))
+
+        // then
+        assertEquals("The city must have changed hands", assyria, defenderCity.civ)
+        assertTrue("Assyria must have stolen the most advanced tech the former owner knew",
+            assyria.tech.isResearched(advancedTech))
+        assertTrue("The looted city must be flagged so it cannot be looted again",
+            defenderCity.hasProvidedConquestTech)
+    }
+
+    @Test
     fun `should not conquer city when defeated and ranged attacked`() {
         // given
         val attackerUnit = testGame.addUnit("Archer", attackerCiv, testGame.getTile(0,2))

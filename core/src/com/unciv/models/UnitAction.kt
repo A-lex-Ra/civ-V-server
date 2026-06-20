@@ -198,6 +198,8 @@ enum class UnitActionType(
         { ImageGetter.getUnitActionPortrait("HurryConstruction") }, UncivSound.Chimes),
     ConductTradeMission("{Conduct Trade Mission} (${Fonts.death})",
         { ImageGetter.getUnitActionPortrait("ConductTradeMission") }, UncivSound.Chimes),
+    SellExoticGoods("Sell Exotic Goods for [amount] Gold",
+        { ImageGetter.getUnitActionPortrait("ConductTradeMission") }, UncivSound.Chimes),
     EstablishTradeRoute("Establish Trade Route",
         { ImageGetter.getUnitActionPortrait("ConductTradeMission") }, UncivSound.Chimes),
     MoveTradeUnit("Move to City",

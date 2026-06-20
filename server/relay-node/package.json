@@ -2,7 +2,8 @@
   "name": "unciv-relay",
   "version": "1.0.0",
   "description": "Lightweight, JVM-free multiplayer-v3 relay — wire-compatible with server/src/com/unciv/app/server/RelayServer.kt",
-  "license": "MPL-2.0",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "Alexander Rastorguev (A-lex-Ra) <rastorguev2047@gmail.com>",
   "type": "commonjs",
   "main": "relay.js",
   "engines": {

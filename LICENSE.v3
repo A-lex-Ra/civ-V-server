@@ -1,0 +1,57 @@
+Unciv multiplayer-v3 — View-Only License
+SPDX-License-Identifier: LicenseRef-Unciv-v3-ViewOnly
+
+Copyright (c) 2026 Alexander Rastorguev ("A-lex-Ra")
+Contact: rastorguev2047@gmail.com
+
+This is NOT an open-source license. It is a source-available, view-only
+license. It exists to keep authorship of this fork's original netcode clear —
+not to refuse anyone (see section 4).
+
+1. Scope
+   This license governs only the files that carry the SPDX tag
+   "LicenseRef-Unciv-v3-ViewOnly" in their header, or that live in a directory
+   containing a copy of this license (the "Covered Files"). The Covered Files
+   are the original *authoritative multiplayer-v3* netcode written for this
+   fork. Every other file in this repository — including all upstream Unciv
+   code and this fork's modifications to it, and the bundled Brave New World
+   data — remains under its own license, the Mozilla Public License 2.0 (see
+   ./LICENSE). A file-by-file map is in ./LICENSING.md.
+
+2. Grant — viewing only
+   You are granted a worldwide, royalty-free, non-exclusive right to view and
+   read the Covered Files, and to keep the copies you received as part of this
+   repository, for the sole purposes of reference, study, and review.
+
+3. Reservation of all other rights
+   All other rights are reserved. Without prior written permission of the
+   copyright holder you may NOT, in whole or in part: use the Covered Files in
+   any product or service; compile, run, or otherwise execute them; copy them
+   apart from holding this repository; modify, adapt, or create derivative
+   works of them; merge them into other software; or publish, distribute,
+   sublicense, or sell them, in source or binary form.
+
+4. Permission is freely available on request
+   These restrictions are about attribution and provenance, not gatekeeping.
+   Permission to use, modify, run, or distribute the Covered Files — including
+   contributing changes back — is granted readily on request and will normally
+   be given. Just ask: email rastorguev2047@gmail.com or open an issue on the
+   project's GitHub repository.
+
+5. No trademark rights
+   This license grants no rights in any name, logo, or trademark.
+
+6. No warranty
+   THE COVERED FILES ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+   NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+   OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE COVERED
+   FILES OR THEIR USE.
+
+7. Relationship to the MPL-2.0 code
+   The Covered Files are combined with Mozilla Public License 2.0 code to form
+   a "Larger Work" as that term is used in the MPL. Nothing in this license
+   alters the terms under which the MPL-covered files are offered; those files
+   remain available under the MPL 2.0. This license applies solely to the
+   Covered Files.

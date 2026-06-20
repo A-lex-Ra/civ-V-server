@@ -129,7 +129,13 @@ class AlertPopup(
             AlertType.StartIntro -> addStartIntro()
             AlertType.RecapturedCivilian -> shouldOpen = addRecapturedCivilian()
             AlertType.GameHasBeenWon -> addGameHasBeenWon()
-            AlertType.Event -> shouldOpen = addEvent()
+            AlertType.Event ->
+                // The forced ideology switch (Civil Resistance) rides on AlertType.Event but is NOT a
+                // ruleset Event — it has its own bespoke prompt that emits GameCommand.SwitchIdeology.
+                shouldOpen =
+                    if (popupAlert.value == com.unciv.logic.civilization.managers.PublicOpinionManager.CIVIL_RESISTANCE_EVENT_NAME)
+                        addCivilResistance()
+                    else addEvent()
         }
         if (shouldOpen) open()
         else viewingCiv.popupAlerts.remove(popupAlert)
@@ -694,6 +700,41 @@ class AlertPopup(
         val render = RenderEvent(event, worldScreen, unit, sendV3Command = true) { close() }
         if (!render.isValid) return false
         add(render).pad(0f).row()
+        return true
+    }
+
+    /**
+     * BNW Phase 2a — the forced ideology switch ("Civil Resistance"). This is NOT a ruleset Event, so it
+     * cannot go through [addEvent]; it is a bespoke prompt. Public opinion has forced a revolt and the
+     * only legal move is to adopt the surrounding-preferred ideology (ideologies are mutually exclusive,
+     * so no rival one is voluntarily "adoptable" while we hold ours — this prompt is the only switch path
+     * for a human). Mirrors [addDemand]: under multiplayer-v3 send the [GameCommand.SwitchIdeology] intent
+     * so the authority performs the canonical switch, then fall through to the optimistic local switch.
+     * @return false (alert auto-discarded) if the revolt already resolved before we could render.
+     */
+    private fun addCivilResistance(): Boolean {
+        val currentIdeology = viewingCiv.policies.getCurrentIdeology() ?: return false
+        val preferred = viewingCiv.publicOpinion.getPreferredIdeology() ?: return false
+        if (preferred.name == currentIdeology.name) return false // revolt no longer stands
+
+        addTopicHeader("CIVIL RESISTANCE", LIGHTER_ORANGE_COLOR)
+        addGoodSizedLabel(
+            "Public opinion has turned against [${currentIdeology.name}]! Our people demand we embrace [${preferred.name}]."
+        ).row()
+        addCloseButton("Switch to [${preferred.name}] (and enter Anarchy)", KeyboardBinding.Confirm) {
+            // multiplayer-v3: route the switch to the authority first, then optimistically switch the
+            // local (throwaway, visibility-filtered) view, which the next authoritative snapshot replaces.
+            val v2 = com.unciv.UncivGame.Current.v3GameManager
+            if (v2 != null) {
+                v2.sendCommand(com.unciv.network.command.GameCommand.SwitchIdeology(
+                    toBranchName = preferred.name
+                ))
+            }
+            viewingCiv.policies.switchIdeology(preferred)
+        }.row()
+        // Declining just closes the alert; the revolt persists and the prompt is re-raised next turn
+        // (PublicOpinionManager re-queues it while the civ is still under revolt).
+        addCloseButton("Hold firm for now", KeyboardBinding.Cancel).row()
         return true
     }
 

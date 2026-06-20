@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: LicenseRef-Unciv-v3-ViewOnly
+// Copyright (c) 2026 Alexander Rastorguev (A-lex-Ra) <rastorguev2047@gmail.com>
+//
+// Part of the Unciv multiplayer-v3 netcode — view-only, NOT under the Mozilla
+// Public License that covers the rest of this repository. No right to use,
+// copy, modify, run, or distribute is granted without written permission;
+// permission is gladly given on request (email or GitHub issue).
+// Full terms: /LICENSE.v3  ·  License map: /LICENSING.md
+
 package com.unciv.network.command
 
 import kotlinx.serialization.SerialName
@@ -584,6 +593,23 @@ sealed interface GameCommand {
     @Serializable
     @SerialName("disbandUnit")
     data class DisbandUnit(
+        val unitX: Int,
+        val unitY: Int
+    ) : GameCommand
+
+    /**
+     * BNW Portuguese Nau "Sell Exotic Goods". The acting civ's exotic-goods unit on tile ([unitX], [unitY])
+     * sells its wares for Gold (scaling with distance from the capital) and XP.
+     *
+     * A dedicated command (not [GenericUnitAction]) because its UI action lambda itself sends a command and
+     * applies the reward optimistically, so the engine action is NOT safe to re-invoke on the authority. The
+     * authority resolves the unit, re-checks the shared `SellExoticGoods` gate (uses left, has movement, in
+     * foreign/neutral territory), then applies the identical deterministic effect via
+     * `SellExoticGoods.sellExoticGoods`. Carries no choice beyond the unit's tile.
+     */
+    @Serializable
+    @SerialName("sellExoticGoods")
+    data class SellExoticGoods(
         val unitX: Int,
         val unitY: Int
     ) : GameCommand

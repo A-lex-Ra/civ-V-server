@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: LicenseRef-Unciv-v3-ViewOnly
+// Copyright (c) 2026 Alexander Rastorguev (A-lex-Ra) <rastorguev2047@gmail.com>
+//
+// Part of the Unciv multiplayer-v3 netcode — view-only, NOT under the Mozilla
+// Public License that covers the rest of this repository. No right to use,
+// copy, modify, run, or distribute is granted without written permission;
+// permission is gladly given on request (email or GitHub issue).
+// Full terms: /LICENSE.v3  ·  License map: /LICENSING.md
+
 package com.unciv.logic.multiplayer.v3.visibility
 
 import com.unciv.logic.GameInfo
@@ -391,6 +400,26 @@ object PlayerViewProjector {
 
         connections.removeAll { c ->
             !(c.ownerCivId == viewerId || c.originCityId in myCityIds || c.destinationCityId in myCityIds)
+        }
+
+        // A route KEPT only because it touches one of the viewer's cities (the viewer does NOT own it) has
+        // a FAR endpoint owned by a rival. The viewer legitimately knows the route's OWNER (its trade unit
+        // arrives at the viewer's own city), so ownerCivId stays. But if the viewer has never explored the
+        // FAR endpoint city, redactCities (run just before this) has already removed it from `projected` —
+        // so leaving that far city's stable id, the parked unit id, and the tile-distance intact would leak
+        // the hidden city's existence and rough location. Scrub only those far-endpoint fields, keeping the
+        // owner and the near (viewer-owned) endpoint.
+        val visibleCityIds = projected.civilizations.asSequence()
+            .flatMap { it.cities.asSequence() }
+            .mapTo(HashSet()) { it.id }
+        for (c in connections) {
+            if (c.ownerCivId == viewerId) continue // the viewer's own route — fully entitled to all fields
+            val originIsMine = c.originCityId in myCityIds
+            val farCityId = if (originIsMine) c.destinationCityId else c.originCityId
+            if (farCityId in visibleCityIds) continue // far endpoint legitimately explored — no leak
+            if (originIsMine) c.destinationCityId = "" else c.originCityId = ""
+            c.length = 0
+            c.unitId = -1
         }
     }
 

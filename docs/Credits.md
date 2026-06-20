@@ -1,5 +1,28 @@
 # Credits
 
+## Game content & code provenance
+
+This is a fork of [Unciv](https://github.com/yairm210/Unciv) by yairm210 and the
+Unciv contributors, licensed under the Mozilla Public License 2.0.
+
+The **Brave New World** content and mechanics in this fork were adopted from the
+[RobLoach `Civ-V-Brave-New-World`](https://github.com/RobLoach/Civ-V-Brave-New-World)
+extension mod (MPL-2.0) — reused directly as ruleset data
+(`android/assets/jsons/Civ V - Brave New World/`, with the mod cloned for
+reference under `vendor/Civ-V-Brave-New-World/`) and used as the reference for
+the parts reimplemented in Kotlin. With thanks to its authors:
+
+-   [RobLoach](https://github.com/RobLoach) — the `Civ-V-Brave-New-World` extension mod this fork draws from
+-   [ravignir](https://github.com/ravignir) — the original Unciv Brave New World mod
+-   [chris03-dev](https://codeberg.org/chris03-dev) — contributor to the mod
+
+That mod's own art/icon attribution is preserved in its
+[CREDITS](../vendor/Civ-V-Brave-New-World/CREDITS.md).
+
+The fork's original **authoritative multiplayer-v3** netcode is by Alexander
+Rastorguev (A-lex-Ra) and is under a separate view-only license — see
+[LICENSING.md](../LICENSING.md) and [LICENSE.v3](../LICENSE.v3).
+
 ## Icon Credits
 
 Flag Icons made by [Freepik](https://www.flaticon.com/authors/freepik) from [www.flaticon.com](https://www.flaticon.com) and licensed by Creative Commons 3.0, except for:

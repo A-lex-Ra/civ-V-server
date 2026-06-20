@@ -165,8 +165,10 @@ class WorldCongressManager : IsPartOfGameInfoSerialization {
         isFounded = true
         foundingTurn = gameInfo.turns
         sessionNumber = 0
-        recomputeDelegates()
+        // Elect the host FIRST, then recompute delegates — getDelegateCount adds the host's +1, so the
+        // stored counts must be taken with the new host already decided (else the host is short one delegate).
         electHost()
+        recomputeDelegates()
         turnsUntilNextSession = getTurnsBetweenSessions()
         currentPhase = CongressPhase.Idle
 
@@ -265,8 +267,9 @@ class WorldCongressManager : IsPartOfGameInfoSerialization {
      * congress screen.
      */
     fun beginSession() {
-        recomputeDelegates()
+        // Host first, then delegate counts (the host bonus must be reflected in the stored counts).
         electHost()
+        recomputeDelegates()
         sessionNumber++
         activeProposals.clear()
         currentPhase = CongressPhase.Proposing
@@ -460,24 +463,36 @@ class WorldCongressManager : IsPartOfGameInfoSerialization {
     //region Diplomatic-victory front-end (Increment 4)
 
     /**
-     * Enact a passing [ResolutionType.WorldLeaderElection] (D5): write the delegate-weighted bloc tallies
-     * into [GameInfo.diplomaticVictoryVotesCast] and run [GameInfo.processDiplomaticVictory], reusing the
-     * legacy UN diplomatic-victory machinery unchanged. Each member that backed the winning candidate is
-     * recorded as having voted for them; the host's +1 delegate already maps onto the UN-owner weighting
-     * (we do NOT additionally re-apply the legacy UN +2, since the congress is the front-end now).
+     * Enact a passing [ResolutionType.WorldLeaderElection] (D5) — the BNW Diplomatic Victory front-end.
+     *
+     * The legacy [VictoryManager] tally counts **one vote per voter** against a threshold derived from
+     * *every* living civ (city-states included), so a major-only delegate bloc can never reach it and the
+     * election could never actually win. We therefore decide the world-leader win **here**, on DELEGATE
+     * WEIGHT: the candidate must take a strict majority of the congress's total delegate pool (members plus
+     * their allied city-states, already folded into each member's delegate count). A strict majority
+     * guarantees a single winner. On success we set the very same victory flag the legacy path would set
+     * ([VictoryManager.hasEverWonDiplomaticVote]). The per-turn legacy machinery is already suppressed for
+     * founded congresses in [TurnManager.handleDiplomaticVictoryFlags], so this is the sole authority on
+     * the world-leader win. The per-voter backing is still recorded into [GameInfo.diplomaticVictoryVotesCast]
+     * to keep the data shape the rest of the engine expects.
      */
     private fun enactWorldLeaderElection(proposal: CongressProposal) {
         val candidateId = proposal.choiceArg
         if (candidateId.isEmpty()) return
-
-        // The bloc winner of this proposal — by delegate weight, FOR the candidate.
-        // We record every FOR-voter as backing the candidate, weighted by their delegates, and every
-        // AGAINST-voter as abstaining (null). This expresses delegate weighting through the existing
-        // HashMap<String,String?> by recording one entry per voter (count handled by the legacy path's
-        // UN-owner weighting plus our host mapping).
         recordCongressVotes(candidateId, proposal)
-        gameInfo.diplomaticVictoryVotesProcessed = false
-        gameInfo.processDiplomaticVictory()
+
+        val candidate = gameInfo.civilizations.firstOrNull {
+            it.civID == candidateId && it.isMajorCiv() && !it.isDefeated()
+        } ?: return
+        // Count only living voters' delegates FOR the candidate, against the total living delegate pool.
+        val forDelegates = proposal.votesFor.entries.sumOf { (voterId, votes) ->
+            if (isMember(voterId)) votes else 0
+        }
+        val totalDelegates = getMemberCivs().sumOf { getDelegateCount(it) }
+        if (totalDelegates > 0 && forDelegates * 2 > totalDelegates) {
+            candidate.victoryManager.hasEverWonDiplomaticVote = true
+            gameInfo.diplomaticVictoryVotesProcessed = true // this election has been decided
+        }
     }
 
     /**
@@ -534,14 +549,40 @@ class WorldCongressManager : IsPartOfGameInfoSerialization {
     private fun automateProposal(civ: Civilization) {
         val proposable = getProposableResolutions(civ)
         if (proposable.isEmpty()) return
-        // Prefer a harmless self-benefit: a funding resolution if available, else the first proposable.
-        val choice = proposable.firstOrNull {
+        // Prefer a harmless self-benefit: a no-arg funding resolution.
+        val funding = proposable.firstOrNull {
             it == ResolutionType.SciencesFunding || it == ResolutionType.ArtsFunding
-        } ?: proposable.first()
-        // Only the simple no-arg fundings are auto-proposed; targeting/choice resolutions need a pick we
-        // don't compute here, so skip them rather than propose an invalid one.
-        if (choice.needsTarget || choice.needsChoiceArg) return
-        addProposal(civ, choice)
+        }
+        if (funding != null) { addProposal(civ, funding); return }
+
+        // No funding proposable — fall back to the first proposable, computing a sensible target / choice
+        // argument so targeting and choice resolutions are actually proposable by the AI (they used to be
+        // skipped outright, leaving half the catalogue inert). Bail only if no sensible argument exists.
+        val choice = proposable.first()
+        val targetCivId = if (choice.needsTarget) (pickProposalTarget(civ) ?: return) else ""
+        val choiceArg = if (choice.needsChoiceArg) (pickProposalChoiceArg(civ, choice) ?: return) else ""
+        addProposal(civ, choice, targetCivId, choiceArg)
+    }
+
+    /** AI target for a targeting resolution: the fellow member it likes least (most negative opinion). */
+    private fun pickProposalTarget(civ: Civilization): String? =
+        getMemberCivs()
+            .filter { it.civID != civ.civID }
+            .minByOrNull { civ.getDiplomacyManager(it)?.opinionOfOtherCiv() ?: 0f }
+            ?.civID
+
+    /** A sensible [CongressProposal.choiceArg] for the AI by argument kind; null when none applies. */
+    private fun pickProposalChoiceArg(civ: Civilization, type: ResolutionType): String? = when (type.choiceArgKind) {
+        // Ban a luxury we ourselves do NOT have available (hurts rivals, not us).
+        ResolutionType.ChoiceArgKind.Luxury -> gameInfo.ruleset.tileResources.values
+            .firstOrNull {
+                it.resourceType == com.unciv.models.ruleset.tile.ResourceType.Luxury &&
+                    (civ.getCivResourcesByName()[it.name] ?: 0) <= 0
+            }?.name
+        ResolutionType.ChoiceArgKind.Religion -> civ.religionManager.religion?.name
+        ResolutionType.ChoiceArgKind.Ideology -> civ.policies.getCurrentIdeology()?.name
+        ResolutionType.ChoiceArgKind.Civ -> civ.civID // nominate self for World Leader
+        ResolutionType.ChoiceArgKind.None -> null
     }
 
     /**

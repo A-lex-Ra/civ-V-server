@@ -71,7 +71,14 @@ class TourismManager : IsPartOfGameInfoSerialization {
     fun getBaseTourismOutput(): Float {
         val engineSupply = civInfo.getCivResourceSupply()
             .firstOrNull { it.resource.name == TOURISM_RESOURCE }?.amount?.toFloat() ?: 0f
-        val contributed = tourismOutputContributors.sumOf { it().toDouble() }.toFloat()
+        // The engine `Tourism` supply above already has the civ's `%-Tourism resource production` modifier
+        // applied (CivInfoTransientCache), but the contributor-seam tourism (Great Works, Phase 2c) bypasses
+        // that pipeline. Apply the SAME modifier here so a `[+x]% [Tourism] resource production` unique — e.g.
+        // Brazil's Carnival, which doubles ALL tourism during a Golden Age — also scales Great-Work tourism.
+        // The modifier is 1.0 (no-op) in normal play and in rulesets without a Tourism resource.
+        val tourismResource = civInfo.gameInfo.ruleset.tileResources[TOURISM_RESOURCE]
+        val contributorModifier = if (tourismResource != null) civInfo.getResourceModifier(tourismResource) else 1f
+        val contributed = tourismOutputContributors.sumOf { it().toDouble() }.toFloat() * contributorModifier
         return engineSupply + contributed
     }
 

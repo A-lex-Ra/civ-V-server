@@ -8,6 +8,7 @@ import com.unciv.logic.civilization.PlayerType
 import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
 import com.unciv.logic.civilization.managers.ImprovementFunctions
 import com.unciv.logic.map.mapunit.MapUnit
+import com.unciv.logic.map.mapunit.SellExoticGoods
 import com.unciv.logic.map.tile.ImprovementBuildingProblem
 import com.unciv.logic.map.tile.RoadStatus
 import com.unciv.logic.map.tile.Tile
@@ -296,6 +297,36 @@ object UnitActionsFromUniques {
                     })
             )
         }
+    }
+
+    /**
+     * BNW Portuguese Nau "Sell Exotic Goods": a limited-use action (the [SellExoticGoods] mechanic) granting
+     * Gold (scaling with distance from the capital) and XP, usable only in foreign/neutral territory. Like
+     * FoundCity/Disband/GiftUnit it routes the intent through the authority on a v3 client, then optimistically
+     * applies the shared engine effect locally (which is also the single-player path).
+     */
+    internal fun getSellExoticGoodsActions(unit: MapUnit, tile: Tile): Sequence<UnitAction> {
+        if (SellExoticGoods.maxUses(unit) <= 0) return emptySequence() // not a Sell-Exotic-Goods unit
+        val gold = SellExoticGoods.goldReward(unit)
+        val title = UnitActionType.SellExoticGoods.value.fillPlaceholders(gold.tr())
+        return sequenceOf(UnitAction(UnitActionType.SellExoticGoods,
+            useFrequency = 80f,
+            title = title,
+            action = {
+                // EXPERIMENTAL / PREVIEW (multiplayer-v3): route the intent to the authority, keyed by acting
+                // civ + the unit's current tile (CommandExecutor.executeSellExoticGoods). Sent before the
+                // local apply; gate only on v2 != null, then FALL THROUGH to the optimistic local apply (also
+                // the single-player path).
+                val v2 = UncivGame.Current.v3GameManager
+                if (v2 != null) {
+                    v2.sendCommand(com.unciv.network.command.GameCommand.SellExoticGoods(
+                        unitX = unit.currentTile.position.x, unitY = unit.currentTile.position.y
+                    ))
+                }
+                SellExoticGoods.sellExoticGoods(unit)
+                GUI.setUpdateWorldOnNextRender()
+            }.takeIf { SellExoticGoods.canSellExoticGoods(unit) }
+        ))
     }
 
     internal fun getAddInCapitalActions(unit: MapUnit, tile: Tile): Sequence<UnitAction> {

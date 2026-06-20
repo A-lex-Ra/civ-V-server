@@ -74,6 +74,9 @@ class City : IsPartOfGameInfoSerialization, INamed {
     // This is so that cities in resistance that are recaptured aren't in resistance anymore
     var previousOwner = ""
     var turnAcquired = 0
+    // BNW Assyria "Treasures of Nineveh": once a tech has been stolen from this city by a conqueror, it can
+    // never yield another one (the loot is "once per enemy city", persisting across re-captures).
+    var hasProvidedConquestTech = false
     var health = 200
 
 
@@ -178,6 +181,7 @@ class City : IsPartOfGameInfoSerialization, INamed {
         toReturn.attackedThisTurn = attackedThisTurn
         toReturn.foundingCiv = foundingCiv
         toReturn.turnAcquired = turnAcquired
+        toReturn.hasProvidedConquestTech = hasProvidedConquestTech
         toReturn.isPuppet = isPuppet
         toReturn.isOriginalCapital = isOriginalCapital
         toReturn.flagsCountdown.putAll(flagsCountdown)

@@ -1,3 +1,12 @@
+// SPDX-License-Identifier: LicenseRef-Unciv-v3-ViewOnly
+// Copyright (c) 2026 Alexander Rastorguev (A-lex-Ra) <rastorguev2047@gmail.com>
+//
+// Part of the Unciv multiplayer-v3 netcode — view-only, NOT under the Mozilla
+// Public License that covers the rest of this repository. No right to use,
+// copy, modify, run, or distribute is granted without written permission;
+// permission is gladly given on request (email or GitHub issue).
+// Full terms: /LICENSE.v3  ·  License map: /LICENSING.md
+
 package com.unciv.logic.multiplayer.v3.command
 
 import com.unciv.Constants
@@ -14,6 +23,7 @@ import com.unciv.logic.civilization.Civilization
 import com.unciv.logic.civilization.diplomacy.Demand
 import com.unciv.logic.civilization.diplomacy.DiplomacyFlags
 import com.unciv.logic.map.mapunit.MapUnit
+import com.unciv.logic.map.mapunit.SellExoticGoods
 import com.unciv.logic.map.tile.Tile
 import com.unciv.logic.trade.TradeLogic
 import com.unciv.models.Spy
@@ -106,6 +116,7 @@ class CommandExecutor {
             is GameCommand.GiftUnit -> executeGiftUnit(gameInfo, playerCivId, command)
             is GameCommand.SwapUnits -> executeSwapUnits(gameInfo, playerCivId, command)
             is GameCommand.DisbandUnit -> executeDisbandUnit(gameInfo, playerCivId, command)
+            is GameCommand.SellExoticGoods -> executeSellExoticGoods(gameInfo, playerCivId, command)
             is GameCommand.ChooseGreatPerson -> executeChooseGreatPerson(gameInfo, playerCivId, command)
             is GameCommand.FoundPantheon -> executeFoundPantheon(gameInfo, playerCivId, command)
             is GameCommand.FoundReligion -> executeFoundReligion(gameInfo, playerCivId, command)
@@ -1417,6 +1428,12 @@ class CommandExecutor {
             throw CommandException("A trade route's destination must differ from its origin")
 
         val manager = gameInfo.tradeRouteManager
+        // Idempotency / anti-duplication: a trade unit owns at most one route. The unit's spent movement
+        // (establish sets currentMovement = 0) already blocks the common re-establish, but a replayed or
+        // double-sent command racing before that would otherwise add a SECOND connection for the same unit
+        // — double-counting capacity and per-turn yields. Reject it explicitly.
+        if (manager.getRoutesEstablishedBy(actingCiv.civID).any { it.unitId == unit.id })
+            throw CommandException("The trade unit at (${command.unitX}, ${command.unitY}) already has an established trade route")
         if (manager.usedCapacity(actingCiv.civID) >= manager.getMaxCapacity(actingCiv))
             throw CommandException("'$playerCivId' has no free trade-route capacity")
 
@@ -1440,6 +1457,23 @@ class CommandExecutor {
             else -> com.unciv.logic.trade.TradeRouteYield.Production
         }
         manager.establish(originCity, destCity, unit, internalYield)
+    }
+
+    /**
+     * BNW Portuguese Nau "Sell Exotic Goods": the acting civ's exotic-goods unit sells its wares for Gold +
+     * XP. Applies the SAME shared [SellExoticGoods] effect the UI/single-player path uses, after re-checking
+     * the gate (uses left, has movement, in foreign/neutral territory) on the canonical state.
+     */
+    private fun executeSellExoticGoods(gameInfo: GameInfo, playerCivId: String, command: GameCommand.SellExoticGoods) {
+        val actingCiv = requireCiv(gameInfo, playerCivId)
+        val unitTile = requireTile(gameInfo, command.unitX, command.unitY, "Unit")
+        // Resolve the exotic-goods unit specifically (it may share its tile with other units).
+        val unit = unitTile.getUnits().firstOrNull {
+            it.owner == actingCiv.civID && SellExoticGoods.maxUses(it) > 0
+        } ?: throw CommandException("No unit able to sell exotic goods owned by '$playerCivId' at (${command.unitX}, ${command.unitY})")
+        if (!SellExoticGoods.canSellExoticGoods(unit))
+            throw CommandException("The unit at (${command.unitX}, ${command.unitY}) cannot sell exotic goods here right now")
+        SellExoticGoods.sellExoticGoods(unit)
     }
 
     /**
@@ -1594,6 +1628,13 @@ class CommandExecutor {
         if (type.needsChoiceArg) {
             if (command.choiceArg.isEmpty())
                 throw CommandException("Resolution '${command.resolutionType}' needs a choice argument")
+            // A World-Leader candidate must be a living major civ — the choiceArg branch otherwise accepts
+            // any string, so a forged/stale command could nominate a dead civ, a city-state, or a non-id.
+            if (type == com.unciv.logic.civilization.ResolutionType.WorldLeaderElection) {
+                val candidate = gameInfo.getCivilizationOrNull(command.choiceArg)
+                if (candidate == null || !candidate.isMajorCiv() || candidate.isDefeated())
+                    throw CommandException("World Leader candidate '${command.choiceArg}' must be a living major civilization")
+            }
             choiceArg = command.choiceArg
         }
 

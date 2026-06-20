@@ -67,27 +67,69 @@ class WorldCongressScreen(private val viewingCiv: Civilization) : PickerScreen()
         }
         topTable.add("Propose a resolution:".toLabel()).pad(10f).row()
         for (type in congress.getProposableResolutions(viewingCiv)) {
-            // Only no-argument resolutions get a one-click propose button here; resolutions that need a
-            // target/choice argument are left for a follow-up picker (kept out of the minimal UI).
-            if (type.needsTarget || type.needsChoiceArg) continue
             val button = PickerPane.getPickerOptionButton(
                 com.unciv.ui.images.ImageGetter.getImage("OtherIcons/Diplomacy"), type.name
             )
             button.onClick(UncivSound.Chimes) {
-                proposeResolution(type)
-                UncivGame.Current.popScreen()
+                // A resolution that needs a target civ or a choice argument opens a second-step picker;
+                // a no-argument one proposes immediately.
+                if (type.needsTarget || type.needsChoiceArg) buildArgPicker(type)
+                else { proposeResolution(type); UncivGame.Current.popScreen() }
             }
             topTable.add(button).fillX().pad(8f).row()
         }
         buildOverviewUi()
     }
 
-    private fun proposeResolution(type: ResolutionType) {
-        val command = GameCommand.ProposeResolution(type.name)
+    /**
+     * Step 2 for a targeting/choice resolution: replace the list with the valid options (a member civ for a
+     * targeting resolution, else a luxury / religion / ideology / candidate per [ResolutionType.choiceArgKind]).
+     * Each option proposes the resolution with that argument. Options are `(displayLabel, argument)`.
+     */
+    private fun buildArgPicker(type: ResolutionType) {
+        topTable.clear()
+        descriptionLabel.setText("Choose an option for [${type.name}]".tr())
+        val ruleset = viewingCiv.gameInfo.ruleset
+        val options: List<Pair<String, String>> = when {
+            type.needsTarget -> congress.getMemberCivs()
+                .filter { it.civID != viewingCiv.civID }
+                .map { it.civName to it.civID }
+            type.choiceArgKind == ResolutionType.ChoiceArgKind.Luxury -> ruleset.tileResources.values
+                .filter { it.resourceType == com.unciv.models.ruleset.tile.ResourceType.Luxury }
+                .map { it.name to it.name }
+            type.choiceArgKind == ResolutionType.ChoiceArgKind.Religion -> viewingCiv.gameInfo.religions.values
+                .filter { it.isMajorReligion() }
+                .map { it.name to it.name }
+            type.choiceArgKind == ResolutionType.ChoiceArgKind.Ideology -> ruleset.policyBranches.values
+                .filter { it.isIdeology }
+                .map { it.name to it.name }
+            type.choiceArgKind == ResolutionType.ChoiceArgKind.Civ -> viewingCiv.gameInfo.getAliveMajorCivs()
+                .map { it.civName to it.civID }
+            else -> emptyList()
+        }
+        if (options.isEmpty()) {
+            topTable.add("No valid options available.".toLabel()).pad(10f).row()
+            return
+        }
+        for ((label, arg) in options) {
+            val button = PickerPane.getPickerOptionButton(
+                com.unciv.ui.images.ImageGetter.getImage("OtherIcons/Diplomacy"), label
+            )
+            button.onClick(UncivSound.Chimes) {
+                if (type.needsTarget) proposeResolution(type, targetCivId = arg)
+                else proposeResolution(type, choiceArg = arg)
+                UncivGame.Current.popScreen()
+            }
+            topTable.add(button).fillX().pad(8f).row()
+        }
+    }
+
+    private fun proposeResolution(type: ResolutionType, targetCivId: String = "", choiceArg: String = "") {
+        val command = GameCommand.ProposeResolution(type.name, targetCivId, choiceArg)
         UncivGame.Current.v3GameManager?.sendCommand(command)
         // Single-player (and a local echo on v3): apply the same intent through the shared manager path.
         if (UncivGame.Current.v3GameManager == null)
-            congress.addProposal(viewingCiv, type)
+            congress.addProposal(viewingCiv, type, targetCivId, choiceArg)
     }
 
     // endregion

@@ -130,8 +130,8 @@ class PublicOpinionManager : IsPartOfGameInfoSerialization {
     /**
      * BNW Phase 2a — Increment 2: detect Civil Resistance. When dissident unhappiness has crossed the
      * [civilResistanceThreshold] (open revolt) AND a different surrounding-preferred ideology exists,
-     * mark [forcedSwitchPending] and raise the actionable Civil-Resistance [PopupAlert] (once) so the
-     * human is prompted to switch. The alert reuses [AlertType.Event] — the existing
+     * mark [forcedSwitchPending] and (re-)raise the actionable Civil-Resistance [PopupAlert] each turn so
+     * the human is prompted to switch. The alert reuses [AlertType.Event] — the existing
      * resolved-by-player-command carrier that survives projection — but the actual switch is performed
      * by `CommandExecutor.executeSwitchIdeology`, not by the event-resolution path (we do NOT invent a
      * new AlertType). AI civs read [forcedSwitchPending] directly in [NextTurnAutomation] and never
@@ -148,13 +148,13 @@ class PublicOpinionManager : IsPartOfGameInfoSerialization {
             return
         }
 
-        if (!forcedSwitchPending) {
-            // Raise the actionable alert exactly once when the revolt begins (only humans see/act on
-            // it; AI reads forcedSwitchPending). Guard against a duplicate if one is already pending.
-            forcedSwitchPending = true
-            if (civInfo.popupAlerts.none { it.type == AlertType.Event && it.value == CIVIL_RESISTANCE_EVENT_NAME })
-                civInfo.popupAlerts.add(PopupAlert(AlertType.Event, CIVIL_RESISTANCE_EVENT_NAME))
-        }
+        // Under revolt: flag it for the AI (which reads forcedSwitchPending directly) and (re-)raise the
+        // actionable Civil-Resistance alert for humans each turn it isn't already queued. Re-raising
+        // matters because a human may dismiss the prompt ("Hold firm") without switching — otherwise they
+        // would never be prompted again yet keep paying the dissident-unhappiness penalty indefinitely.
+        forcedSwitchPending = true
+        if (civInfo.popupAlerts.none { it.type == AlertType.Event && it.value == CIVIL_RESISTANCE_EVENT_NAME })
+            civInfo.popupAlerts.add(PopupAlert(AlertType.Event, CIVIL_RESISTANCE_EVENT_NAME))
     }
 
     /** The strongest opposing-ideology pressure minus our own ideology's pressure, turned into a

@@ -1,0 +1,11 @@
+The files in this directory (and subdirectories) are part of the Unciv
+multiplayer-v3 netcode and are licensed under the View-Only License, NOT the
+Mozilla Public License that covers the rest of this repository.
+
+SPDX-License-Identifier: LicenseRef-Unciv-v3-ViewOnly
+Copyright (c) 2026 Alexander Rastorguev (A-lex-Ra) <rastorguev2047@gmail.com>
+
+Full terms: see LICENSE.v3 at the repository root.
+License map:  see LICENSING.md at the repository root.
+Permission to use, modify, run, or distribute these files is granted on
+request — email rastorguev2047@gmail.com or open a GitHub issue.

@@ -218,6 +218,11 @@ enum class UniqueType(
     LandUnitsCrossTerrainAfterUnitGained("Land units may cross [terrainName] tiles after the first [baseUnitFilter] is earned", UniqueTarget.Global),
     EnemyUnitsSpendExtraMovement("Enemy [mapUnitFilter] units must spend [positiveAmount] extra movement points when inside your territory", UniqueTarget.Global),
 
+    // BNW Assyria "Treasures of Nineveh": stealing knowledge when conquering a city by force.
+    StealTechWhenConqueringCity("Gain a free Technology known by the conquered city's owner upon conquering it",
+        UniqueTarget.Global,
+        docDescription = "When a city is captured by combat, the conqueror gains the most advanced technology the city's former owner had researched but the conqueror had not. Each city can be looted this way only once, ever; gaining a city through trade/gift does not count."),
+
     /// Unit Abilities
 
     UnitStartingExperience("New [baseUnitFilter] units start with [amount] XP [cityFilter]", UniqueTarget.Global, UniqueTarget.FollowerBelief),
@@ -435,6 +440,9 @@ enum class UniqueType(
     CanHurryResearch("Can hurry technology research", UniqueTarget.Unit),
     CanHurryPolicy("Can generate a large amount of culture", UniqueTarget.Unit),
     CanTradeWithCityStateForGoldAndInfluence("Can undertake a trade mission with City-State, giving a large sum of gold and [amount] Influence", UniqueTarget.Unit),
+    // BNW Portuguese Nau "Sell Exotic Goods": a limited-use action granting Gold (scaling with distance from
+    // the capital) and XP, usable in foreign/neutral territory. [positiveAmount] is the per-unit use limit.
+    CanSellExoticGoods("Can perform the Sell Exotic Goods action [positiveAmount] times", UniqueTarget.Unit),
     CanTransform("Can transform to [unit]", UniqueTarget.UnitAction,
         docDescription = "By default consumes all movement"),
 
