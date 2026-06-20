@@ -16,6 +16,7 @@ import com.unciv.models.ruleset.Policy.PolicyBranchType
 import com.unciv.models.ruleset.PolicyBranch
 import com.unciv.models.ruleset.unique.UniqueType
 import com.unciv.models.translations.tr
+import com.unciv.ui.components.UncivTooltip.Companion.addTooltip
 import com.unciv.ui.components.extensions.addSeparator
 import com.unciv.ui.components.extensions.center
 import com.unciv.ui.components.extensions.colorFromRGB
@@ -113,6 +114,10 @@ private class PolicyButton(viewingCiv: Civilization, canChangeState: Boolean, va
 
         icon.toFront()
         icon.center(this)
+
+        // On desktop, show the policy/ideology-tenet's effects ("meta") on hover - these buttons
+        // are icon-only, so otherwise you must select one to read what it does. Touch-suppressed.
+        addTooltip(policy.getDescription(), size = 20f)
     }
 
     fun onClick(function: () -> Unit): PolicyButton {
